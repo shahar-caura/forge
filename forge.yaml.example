@@ -1,0 +1,26 @@
+# Forge configuration
+# Copy to forge.yaml and fill in values.
+# Environment variables are resolved at load time: ${VAR_NAME}
+
+vcs:
+  provider: github
+  repo: owner/repo          # GitHub owner/repo
+  base_branch: main         # Branch to create PRs against
+
+tracker:
+  provider: jira
+  project: PROJ             # Jira project key
+  base_url: ${JIRA_URL}     # e.g. https://yourco.atlassian.net
+  email: ${JIRA_EMAIL}
+  token: ${JIRA_TOKEN}
+
+notifier:
+  provider: slack
+  webhook_url: ${SLACK_WEBHOOK_URL}
+
+agent:
+  provider: claude
+  timeout: 45m              # Max time for agent execution
+
+worktree:
+  cleanup: true             # Remove worktree after PR is opened

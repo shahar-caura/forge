@@ -1,1 +1,21 @@
+# Build output
+bin/
+dist/
+*.exe
+
+# Logs
+*.log
+
+# Config with secrets (use forge.yaml.example as template)
+forge.yaml
+.env
+
+# Test output
+coverage.out
+
+# Editor configs
+.idea/
+.vscode/
+
+# OS
 .DS_Store

@@ -22,7 +22,7 @@ See [docs/STRUCTURE.md](docs/STRUCTURE.md) for project layout.
 
 ## Conventions
 
-- Each provider role (VCS, Tracker, Notifier, Agent, Worktree) has its own interface in `provider/types.go` and its own subdirectory.
+- Each provider role (VCS, Tracker, Notifier, Agent, Worktree) has its own interface in `internal/provider/types.go` and its own subdirectory.
 - All config lives in `forge.yaml`. Env vars resolved once at load time — nothing else reads env vars.
 - No interactive prompts — if forge needs input, it fails and notifies.
 - Shell out to CLIs over HTTP SDKs: `gh` over `go-github`, `git` over `go-git`.
