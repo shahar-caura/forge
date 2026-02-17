@@ -4,6 +4,12 @@ Everything not in V1. Roughly priority-ordered.
 
 ---
 
+## V1.1 — Developer Setup
+
+- [x] **direnv for env vars** — `.envrc` with `dotenv` directive loads `.env` automatically
+
+---
+
 ## V1.5 — Checkpointing & Resume
 
 - [ ] **Run state file** — save progress after each step to `.forge/runs/<run-id>.yaml`
