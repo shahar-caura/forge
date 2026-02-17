@@ -1,0 +1,119 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Duration wraps time.Duration with YAML unmarshaling from strings like "45m".
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return err
+	}
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", s, err)
+	}
+	d.Duration = parsed
+	return nil
+}
+
+// Config is the top-level forge configuration.
+type Config struct {
+	VCS      VCSConfig      `yaml:"vcs"`
+	Tracker  TrackerConfig  `yaml:"tracker"`
+	Notifier NotifierConfig `yaml:"notifier"`
+	Agent    AgentConfig    `yaml:"agent"`
+	Worktree WorktreeConfig `yaml:"worktree"`
+}
+
+type VCSConfig struct {
+	Provider   string `yaml:"provider"`
+	Repo       string `yaml:"repo"`
+	BaseBranch string `yaml:"base_branch"`
+}
+
+type TrackerConfig struct {
+	Provider string `yaml:"provider"`
+	Project  string `yaml:"project"`
+	BaseURL  string `yaml:"base_url"`
+	Email    string `yaml:"email"`
+	Token    string `yaml:"token"`
+}
+
+type NotifierConfig struct {
+	Provider   string `yaml:"provider"`
+	WebhookURL string `yaml:"webhook_url"`
+}
+
+type AgentConfig struct {
+	Provider string   `yaml:"provider"`
+	Timeout  Duration `yaml:"timeout"`
+}
+
+type WorktreeConfig struct {
+	CreateCmd string `yaml:"create_cmd"`
+	RemoveCmd string `yaml:"remove_cmd"`
+	Cleanup   bool   `yaml:"cleanup"`
+}
+
+const defaultTimeout = 45 * time.Minute
+
+// Load reads, expands env vars, parses, and validates a forge config file.
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+
+	expanded := os.ExpandEnv(string(data))
+
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+
+	if cfg.Agent.Timeout.Duration == 0 {
+		cfg.Agent.Timeout.Duration = defaultTimeout
+	}
+
+	if err := validate(&cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+
+func validate(cfg *Config) error {
+	var errs []error
+
+	if cfg.VCS.Provider == "" {
+		errs = append(errs, errors.New("vcs.provider is required"))
+	}
+	if cfg.VCS.Repo == "" {
+		errs = append(errs, errors.New("vcs.repo is required"))
+	}
+	if cfg.VCS.BaseBranch == "" {
+		errs = append(errs, errors.New("vcs.base_branch is required"))
+	}
+	if cfg.Agent.Provider == "" {
+		errs = append(errs, errors.New("agent.provider is required"))
+	}
+	if cfg.Agent.Timeout.Duration <= 0 {
+		errs = append(errs, errors.New("agent.timeout must be positive"))
+	}
+	if cfg.Worktree.CreateCmd == "" {
+		errs = append(errs, errors.New("worktree.create_cmd is required"))
+	}
+
+	return errors.Join(errs...)
+}

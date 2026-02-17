@@ -17,5 +17,8 @@ coverage.out
 .idea/
 .vscode/
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store

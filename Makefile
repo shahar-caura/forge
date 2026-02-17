@@ -7,7 +7,7 @@ build:
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/forge
 
 run: build
-	./$(BUILD_DIR)/$(BINARY) $(ARGS)
+	./$(BUILD_DIR)/$(BINARY) run $(filter-out $@,$(MAKECMDGOALS))
 
 test:
 	go test -race ./...
@@ -31,3 +31,7 @@ validate:
 	gh auth status
 	claude --version
 	@echo "All prerequisites OK"
+
+# Catch-all so `make run <path>` doesn't error on the path argument.
+%:
+	@:

@@ -23,4 +23,6 @@ agent:
   timeout: 45m              # Max time for agent execution
 
 worktree:
+  create_cmd: "./scripts/git-worktree-add.sh {{.Branch}} {{.Path}} {{.BaseBranch}}"
+  remove_cmd: "git worktree remove --force {{.Path}}"
   cleanup: true             # Remove worktree after PR is opened
