@@ -20,5 +20,8 @@ coverage.out
 # Worktrees
 .worktrees/
 
+# Run state
+.forge/
+
 # OS
 .DS_Store

@@ -34,6 +34,11 @@ type Config struct {
 	Notifier NotifierConfig `yaml:"notifier"`
 	Agent    AgentConfig    `yaml:"agent"`
 	Worktree WorktreeConfig `yaml:"worktree"`
+	State    StateConfig    `yaml:"state"`
+}
+
+type StateConfig struct {
+	Retention Duration `yaml:"retention"` // default 7 days (168h)
 }
 
 type VCSConfig struct {
@@ -66,7 +71,10 @@ type WorktreeConfig struct {
 	Cleanup   bool   `yaml:"cleanup"`
 }
 
-const defaultTimeout = 45 * time.Minute
+const (
+	defaultTimeout   = 45 * time.Minute
+	defaultRetention = 7 * 24 * time.Hour // 168h
+)
 
 // Load reads, expands env vars, parses, and validates a forge config file.
 func Load(path string) (*Config, error) {
@@ -84,6 +92,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Agent.Timeout.Duration == 0 {
 		cfg.Agent.Timeout.Duration = defaultTimeout
+	}
+	if cfg.State.Retention.Duration == 0 {
+		cfg.State.Retention.Duration = defaultRetention
 	}
 
 	if err := validate(&cfg); err != nil {

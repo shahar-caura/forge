@@ -2,10 +2,11 @@
 
 ```
 forge/
-├── cmd/forge/main.go              # CLI entry point: parse args, load config, run
+├── cmd/forge/main.go              # CLI entry point: run/resume/runs subcommands
 ├── internal/
 │   ├── config/config.go           # Load forge.yaml, resolve env vars, validate
-│   ├── pipeline/run.go            # 10-step pipeline orchestration
+│   ├── pipeline/run.go            # 6-step pipeline with state tracking + resume
+│   ├── state/state.go             # Run state persistence (New/Load/Save/List/Cleanup)
 │   └── provider/
 │       ├── types.go               # Provider interfaces + shared types (PR, Issue, Comment)
 │       ├── vcs/github.go          # VCS       — gh CLI wrapper

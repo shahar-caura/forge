@@ -12,13 +12,13 @@ Everything not in V1. Roughly priority-ordered.
 
 ## V1.5 — Checkpointing & Resume
 
-- [ ] **Run state file** — save progress after each step to `.forge/runs/<run-id>.yaml`
+- [x] **Run state file** — save progress after each step to `.forge/runs/<run-id>.yaml`
   - Tracks: current step, artifacts (jira_key, branch, worktree_path, pr_url), step history with status/errors
   - ~50 lines Go, just YAML read/write
-- [ ] **`forge resume <run-id>`** — continue from last failed step
+- [x] **`forge resume <run-id>`** — continue from last failed step
   - Reads state file, skips completed steps, resumes pipeline
-- [ ] **`forge runs`** — list incomplete/failed runs available for resume
-- [ ] **Auto-cleanup** — delete state files for successful runs after N days (configurable)
+- [x] **`forge runs`** — list incomplete/failed runs available for resume
+- [x] **Auto-cleanup** — delete state files for successful runs after N days (configurable)
 
 ---
 
