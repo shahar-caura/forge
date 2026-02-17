@@ -34,11 +34,13 @@ const (
 // StepNames defines the ordered pipeline steps.
 var StepNames = []string{
 	"read plan",
+	"create issue",
 	"generate branch",
 	"create worktree",
 	"run agent",
 	"commit and push",
 	"create pr",
+	"notify",
 }
 
 // StepState tracks status and error for a single pipeline step.
@@ -61,6 +63,8 @@ type RunState struct {
 	WorktreePath string `yaml:"worktree_path,omitempty"`
 	PRUrl        string `yaml:"pr_url,omitempty"`
 	PRNumber     int    `yaml:"pr_number,omitempty"`
+	IssueKey     string `yaml:"issue_key,omitempty"`
+	IssueURL     string `yaml:"issue_url,omitempty"`
 
 	Steps []StepState `yaml:"steps"`
 }

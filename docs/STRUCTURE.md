@@ -5,7 +5,7 @@ forge/
 ├── cmd/forge/main.go              # CLI entry point: run/resume/runs subcommands
 ├── internal/
 │   ├── config/config.go           # Load forge.yaml, resolve env vars, validate
-│   ├── pipeline/run.go            # 6-step pipeline with state tracking + resume
+│   ├── pipeline/run.go            # 8-step pipeline with state tracking + resume
 │   ├── state/state.go             # Run state persistence (New/Load/Save/List/Cleanup)
 │   └── provider/
 │       ├── types.go               # Provider interfaces + shared types (PR, Issue, Comment)

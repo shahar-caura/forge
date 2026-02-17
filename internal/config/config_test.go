@@ -28,6 +28,7 @@ tracker:
   base_url: https://jira.example.com
   email: user@example.com
   token: secret
+  board_id: "42"
 notifier:
   provider: slack
   webhook_url: https://hooks.slack.com/xxx
@@ -147,7 +148,7 @@ func TestLoad_InvalidYAML(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing config")
 }
 
-func TestLoad_Phase2FieldsParsedNotValidated(t *testing.T) {
+func TestLoad_TrackerAndNotifierFieldsParsed(t *testing.T) {
 	path := writeConfig(t, validYAML)
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -155,6 +156,102 @@ func TestLoad_Phase2FieldsParsedNotValidated(t *testing.T) {
 	assert.Equal(t, "jira", cfg.Tracker.Provider)
 	assert.Equal(t, "PROJ", cfg.Tracker.Project)
 	assert.Equal(t, "https://jira.example.com", cfg.Tracker.BaseURL)
+	assert.Equal(t, "user@example.com", cfg.Tracker.Email)
+	assert.Equal(t, "secret", cfg.Tracker.Token)
 	assert.Equal(t, "slack", cfg.Notifier.Provider)
 	assert.Equal(t, "https://hooks.slack.com/xxx", cfg.Notifier.WebhookURL)
+}
+
+func TestLoad_TrackerProviderSetMissingFields(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+tracker:
+  provider: jira
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+
+	assert.Contains(t, err.Error(), "tracker.project")
+	assert.Contains(t, err.Error(), "tracker.base_url")
+	assert.Contains(t, err.Error(), "tracker.email")
+	assert.Contains(t, err.Error(), "tracker.token")
+}
+
+func TestLoad_NotifierProviderSetMissingWebhook(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+notifier:
+  provider: slack
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+
+	assert.Contains(t, err.Error(), "notifier.webhook_url")
+}
+
+func TestLoad_BoardIDParsed(t *testing.T) {
+	path := writeConfig(t, validYAML)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "42", cfg.Tracker.BoardID)
+}
+
+func TestLoad_BoardIDOptional(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+tracker:
+  provider: jira
+  project: PROJ
+  base_url: https://jira.example.com
+  email: user@example.com
+  token: secret
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.Tracker.BoardID)
+}
+
+func TestLoad_UnconfiguredTrackerNotifierNoValidationErrors(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.Tracker.Provider)
+	assert.Empty(t, cfg.Notifier.Provider)
 }

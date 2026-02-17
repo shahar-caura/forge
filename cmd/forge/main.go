@@ -12,6 +12,8 @@ import (
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/pipeline"
 	"github.com/shahar-caura/forge/internal/provider/agent"
+	"github.com/shahar-caura/forge/internal/provider/notifier"
+	"github.com/shahar-caura/forge/internal/provider/tracker"
 	"github.com/shahar-caura/forge/internal/provider/vcs"
 	"github.com/shahar-caura/forge/internal/provider/worktree"
 	"github.com/shahar-caura/forge/internal/state"
@@ -179,7 +181,7 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 		return pipeline.Providers{}, fmt.Errorf("resolving repo root: %w", err)
 	}
 
-	return pipeline.Providers{
+	p := pipeline.Providers{
 		Worktree: worktree.New(
 			cfg.Worktree.CreateCmd,
 			cfg.Worktree.RemoveCmd,
@@ -189,5 +191,15 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 		),
 		Agent: agent.New(cfg.Agent.Timeout.Duration, logger),
 		VCS:   vcs.New(cfg.VCS.Repo, logger),
-	}, nil
+	}
+
+	if cfg.Tracker.Provider != "" {
+		p.Tracker = tracker.New(cfg.Tracker.BaseURL, cfg.Tracker.Project, cfg.Tracker.Email, cfg.Tracker.Token, cfg.Tracker.BoardID)
+	}
+
+	if cfg.Notifier.Provider != "" {
+		p.Notifier = notifier.New(cfg.Notifier.WebhookURL)
+	}
+
+	return p, nil
 }

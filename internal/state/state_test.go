@@ -26,7 +26,7 @@ func TestNew_CorrectInitialState(t *testing.T) {
 	assert.Equal(t, RunActive, rs.Status)
 	assert.False(t, rs.CreatedAt.IsZero())
 	assert.False(t, rs.UpdatedAt.IsZero())
-	require.Len(t, rs.Steps, 6)
+	require.Len(t, rs.Steps, 8)
 
 	for i, step := range rs.Steps {
 		assert.Equal(t, StepNames[i], step.Name)
@@ -74,7 +74,7 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	assert.Equal(t, rs.WorktreePath, loaded.WorktreePath)
 	assert.Equal(t, rs.PRUrl, loaded.PRUrl)
 	assert.Equal(t, rs.PRNumber, loaded.PRNumber)
-	require.Len(t, loaded.Steps, 6)
+	require.Len(t, loaded.Steps, 8)
 	assert.Equal(t, StepCompleted, loaded.Steps[0].Status)
 	assert.Equal(t, StepFailed, loaded.Steps[1].Status)
 	assert.Equal(t, "branch conflict", loaded.Steps[1].Error)

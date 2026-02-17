@@ -6,13 +6,16 @@ Test scenarios for forge. When a test is implemented, annotate with `<!-- tested
 
 ## Config (`internal/config`)
 
-- [ ] Load valid `forge.yaml` with all fields populated
-- [ ] Resolve `${ENV_VAR}` references from environment
-- [ ] Fail on missing required fields
+- [x] Load valid `forge.yaml` with all fields populated <!-- tested: TestLoad_ValidConfig -->
+- [x] Resolve `${ENV_VAR}` references from environment <!-- tested: TestLoad_EnvVarExpansion -->
+- [x] Fail on missing required fields <!-- tested: TestLoad_MissingRequiredFields -->
 - [ ] Fail on unresolved env var (empty or unset)
 - [ ] Fail on unreachable Jira base_url
 - [ ] Fail on bad `gh auth status`
 - [ ] Fail on missing `claude` binary
+- [x] Fail on tracker provider set but missing fields <!-- tested: TestLoad_TrackerProviderSetMissingFields -->
+- [x] Fail on notifier provider set but missing webhook <!-- tested: TestLoad_NotifierProviderSetMissingWebhook -->
+- [x] No validation errors when tracker/notifier unconfigured <!-- tested: TestLoad_UnconfiguredTrackerNotifierNoValidationErrors -->
 
 ## VCS (`internal/provider/vcs`)
 
@@ -22,13 +25,18 @@ Test scenarios for forge. When a test is implemented, annotate with `<!-- tested
 
 ## Tracker (`internal/provider/tracker`)
 
-- [ ] Create issue and return key
-- [ ] Handle auth failure (bad token/email)
+- [x] Create issue and return key <!-- tested: TestCreateIssue_HappyPath -->
+- [x] Handle auth failure (bad token/email) <!-- tested: TestCreateIssue_AuthFailure -->
+- [x] Handle bad response body <!-- tested: TestCreateIssue_BadResponseBody -->
+- [x] Handle context cancellation <!-- tested: TestCreateIssue_ContextCancellation -->
+- [x] Handle missing issue key in response <!-- tested: TestCreateIssue_MissingKey -->
 
 ## Notifier (`internal/provider/notifier`)
 
-- [ ] Send DM notification via webhook
-- [ ] Handle webhook failure (bad URL, non-200)
+- [x] Send DM notification via webhook <!-- tested: TestNotify_HappyPath -->
+- [x] Handle webhook failure (bad URL, non-200) <!-- tested: TestNotify_WebhookFailure, TestNotify_BadURL -->
+- [x] Handle context cancellation <!-- tested: TestNotify_ContextCancellation -->
+- [x] Handle unexpected response body <!-- tested: TestNotify_UnexpectedBody -->
 
 ## Agent (`internal/provider/agent`)
 
@@ -44,9 +52,24 @@ Test scenarios for forge. When a test is implemented, annotate with `<!-- tested
 
 ## Pipeline (`internal/pipeline`)
 
-- [ ] Full happy path: plan file -> Jira -> branch -> agent -> PR -> CR wait -> fix -> push -> notify
-- [ ] Fail at step N -> skip remaining steps, notify via Slack with error context
+- [x] Full happy path: plan → branch → agent → PR <!-- tested: TestRun_HappyPath -->
+- [x] Fail at step N -> skip remaining steps <!-- tested: TestRun_PlanNotFound, TestRun_AgentFails, TestRun_CommitFails, TestRun_PRCreationFails -->
 - [ ] Fail at config validation -> exit 1 before any side effects
+- [x] Tracker nil — skips issue creation <!-- tested: TestRun_TrackerNil_SkipsIssueCreation -->
+- [x] Tracker creates issue — key stored in state <!-- tested: TestRun_TrackerCreatesIssue -->
+- [x] Tracker fails — pipeline fails <!-- tested: TestRun_TrackerFails_PipelineFails -->
+- [x] Notifier nil — skips notification <!-- tested: TestRun_NotifierNil_SkipsNotification -->
+- [x] Notifier called on success with PR URL <!-- tested: TestRun_NotifierCalled_OnSuccess -->
+- [x] Notifier called on success with issue URL <!-- tested: TestRun_NotifierCalled_OnSuccess_WithIssue -->
+- [x] Notifier called on failure (best-effort) <!-- tested: TestRun_NotifierCalled_OnFailure -->
+- [x] Notifier failure fails pipeline <!-- tested: TestRun_NotifierFailure_FailsPipeline -->
+- [x] State tracking happy path <!-- tested: TestRun_StateTrackingHappyPath -->
+- [x] Resume skips completed steps <!-- tested: TestRun_ResumeSkipsCompletedSteps -->
+- [x] Resume after agent failure <!-- tested: TestRun_ResumeAfterAgentFailure -->
+- [x] Worktree preserved on failure <!-- tested: TestRun_WorktreePreservedOnFailure -->
+- [x] Worktree cleaned on success <!-- tested: TestRun_WorktreeCleanedOnSuccess -->
+- [x] Resume with missing worktree <!-- tested: TestRun_ResumeWithMissingWorktree -->
+- [x] Artifacts stored in state <!-- tested: TestRun_ArtifactsStoredInState -->
 
 ## E2E Flows
 

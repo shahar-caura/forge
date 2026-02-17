@@ -19,27 +19,38 @@ type Providers struct {
 	VCS      provider.VCS
 	Agent    provider.Agent
 	Worktree provider.Worktree
+	Tracker  provider.Tracker  // nil if unconfigured
+	Notifier provider.Notifier // nil if unconfigured
 }
 
-// Run executes the forge pipeline: read plan → create worktree → run agent → commit → PR.
+// Run executes the forge pipeline:
+//
+//	read plan → create issue → generate branch → create worktree → run agent → commit → PR → notify.
+//
 // If rs has completed steps (resume), those steps are skipped and locals are restored from rs artifacts.
 func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath string, rs *state.RunState, logger *slog.Logger) error {
 	var (
 		plan         string
 		branch       string
 		worktreePath string
+		lastErr      error
 	)
 
 	// Restore artifacts from state on resume.
 	branch = rs.Branch
 	worktreePath = rs.WorktreePath
 
-	// On failure, mark run as failed and preserve worktree.
-	// On success, mark run as completed and clean up worktree.
+	// On failure, mark run as failed, preserve worktree, and best-effort notify.
 	defer func() {
-		if rs.Status == state.RunActive {
+		if rs.Status != state.RunCompleted {
 			rs.Status = state.RunFailed
 			_ = rs.Save()
+
+			// Best-effort failure notification — can't fail-fast when already failing.
+			if providers.Notifier != nil && lastErr != nil {
+				failMsg := fmt.Sprintf("forge pipeline failed: %s", lastErr)
+				_ = providers.Notifier.Notify(ctx, failMsg)
+			}
 		}
 	}()
 
@@ -52,6 +63,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		plan = string(planBytes)
 		return nil
 	}); err != nil {
+		lastErr = err
 		return err
 	}
 	// Re-read plan on resume (plan content not stored in state).
@@ -63,20 +75,40 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		plan = string(planBytes)
 	}
 
-	// Step 1: Generate branch name.
+	// Step 1: Create issue (optional — skipped if no tracker configured).
 	if err := runStep(rs, 1, logger, func() error {
+		if providers.Tracker == nil {
+			logger.Info("no tracker configured, skipping")
+			return nil
+		}
+		title := filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath)))
+		issue, err := providers.Tracker.CreateIssue(ctx, title, plan)
+		if err != nil {
+			return err
+		}
+		rs.IssueKey = issue.Key
+		rs.IssueURL = issue.URL
+		logger.Info("created issue", "key", issue.Key, "url", issue.URL)
+		return nil
+	}); err != nil {
+		lastErr = err
+		return err
+	}
+
+	// Step 2: Generate branch name.
+	if err := runStep(rs, 2, logger, func() error {
 		branch = BranchName(planPath)
 		rs.Branch = branch
 		logger.Info("generated branch name", "branch", branch)
 		return nil
 	}); err != nil {
+		lastErr = err
 		return err
 	}
 
-	// Step 2: Create worktree.
-	// Check if step was already completed (resume) before calling runStep.
-	worktreeWasCompleted := rs.Steps[2].Status == state.StepCompleted
-	if err := runStep(rs, 2, logger, func() error {
+	// Step 3: Create worktree.
+	worktreeWasCompleted := rs.Steps[3].Status == state.StepCompleted
+	if err := runStep(rs, 3, logger, func() error {
 		path, err := providers.Worktree.Create(ctx, branch, cfg.VCS.BaseBranch)
 		if err != nil {
 			return err
@@ -85,12 +117,13 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		rs.WorktreePath = worktreePath
 		return nil
 	}); err != nil {
+		lastErr = err
 		return err
 	}
 	// On resume with completed worktree step, validate worktree still exists.
 	if worktreeWasCompleted && worktreePath != "" {
 		if _, err := os.Stat(worktreePath); err != nil {
-			return fmt.Errorf("step 2 (create worktree): worktree path %q no longer exists", worktreePath)
+			return fmt.Errorf("step 4 (create worktree): worktree path %q no longer exists", worktreePath)
 		}
 	}
 
@@ -108,23 +141,25 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		}
 	}()
 
-	// Step 3: Run agent.
-	if err := runStep(rs, 3, logger, func() error {
+	// Step 4: Run agent.
+	if err := runStep(rs, 4, logger, func() error {
 		return providers.Agent.Run(ctx, worktreePath, plan)
 	}); err != nil {
+		lastErr = err
 		return err
 	}
 
-	// Step 4: Commit and push.
-	if err := runStep(rs, 4, logger, func() error {
+	// Step 5: Commit and push.
+	if err := runStep(rs, 5, logger, func() error {
 		commitMsg := fmt.Sprintf("forge: %s", branch)
 		return providers.VCS.CommitAndPush(ctx, worktreePath, branch, commitMsg)
 	}); err != nil {
+		lastErr = err
 		return err
 	}
 
-	// Step 5: Create PR.
-	if err := runStep(rs, 5, logger, func() error {
+	// Step 6: Create PR.
+	if err := runStep(rs, 6, logger, func() error {
 		title := fmt.Sprintf("forge: %s", filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath))))
 		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, plan)
 		if err != nil {
@@ -132,9 +167,26 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		}
 		rs.PRUrl = pr.URL
 		rs.PRNumber = pr.Number
-		logger.Info("pipeline complete", "pr", pr.URL)
+		logger.Info("created PR", "pr", pr.URL)
 		return nil
 	}); err != nil {
+		lastErr = err
+		return err
+	}
+
+	// Step 7: Notify (optional — skipped if no notifier configured).
+	if err := runStep(rs, 7, logger, func() error {
+		if providers.Notifier == nil {
+			logger.Info("no notifier configured, skipping")
+			return nil
+		}
+		msg := fmt.Sprintf("PR ready for review: %s", rs.PRUrl)
+		if rs.IssueKey != "" {
+			msg += fmt.Sprintf(" (issue: %s)", rs.IssueURL)
+		}
+		return providers.Notifier.Notify(ctx, msg)
+	}); err != nil {
+		lastErr = err
 		return err
 	}
 

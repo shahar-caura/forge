@@ -65,6 +65,28 @@ func (m *mockVCS) CreatePR(_ context.Context, _, _, _, _ string) (*provider.PR, 
 	return m.pr, nil
 }
 
+type mockTracker struct {
+	issue *provider.Issue
+	err   error
+}
+
+func (m *mockTracker) CreateIssue(_ context.Context, _, _ string) (*provider.Issue, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.issue, nil
+}
+
+type mockNotifier struct {
+	err      error
+	messages []string
+}
+
+func (m *mockNotifier) Notify(_ context.Context, message string) error {
+	m.messages = append(m.messages, message)
+	return m.err
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
@@ -95,6 +117,12 @@ func newRunState(planPath string) *state.RunState {
 	return state.New("20260217-120000-test", planPath)
 }
 
+func defaultProviders(wt *mockWorktree, ag *mockAgent, vc *mockVCS) Providers {
+	return Providers{VCS: vc, Agent: ag, Worktree: wt}
+}
+
+// --- Existing tests (step numbers shifted +1 for steps after "read plan") ---
+
 func TestRun_HappyPath(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{}
@@ -103,9 +131,7 @@ func TestRun_HappyPath(t *testing.T) {
 	planPath := writePlan(t, "implement auth")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.True(t, wt.removeCalled, "cleanup should be called on success")
@@ -119,9 +145,7 @@ func TestRun_PlanNotFound(t *testing.T) {
 	planPath := "/nonexistent/plan.md"
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step 1")
@@ -136,12 +160,10 @@ func TestRun_WorktreeCreateFails(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "step 3")
+	assert.Contains(t, err.Error(), "step 4")
 	assert.False(t, wt.removeCalled, "no cleanup if create failed")
 }
 
@@ -153,12 +175,10 @@ func TestRun_AgentFails(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "step 4")
+	assert.Contains(t, err.Error(), "step 5")
 }
 
 func TestRun_CommitFails(t *testing.T) {
@@ -169,12 +189,10 @@ func TestRun_CommitFails(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "step 5")
+	assert.Contains(t, err.Error(), "step 6")
 }
 
 func TestRun_PRCreationFails(t *testing.T) {
@@ -185,12 +203,10 @@ func TestRun_PRCreationFails(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "step 6")
+	assert.Contains(t, err.Error(), "step 7")
 }
 
 func TestBranchName(t *testing.T) {
@@ -213,7 +229,7 @@ func TestBranchName(t *testing.T) {
 	}
 }
 
-// --- New Phase 1.5 tests ---
+// --- Phase 1.5 tests (step indices shifted +1) ---
 
 func TestRun_StateTrackingHappyPath(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
@@ -223,9 +239,7 @@ func TestRun_StateTrackingHappyPath(t *testing.T) {
 	planPath := writePlan(t, "implement auth")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.Equal(t, state.RunCompleted, rs.Status)
@@ -242,16 +256,15 @@ func TestRun_ResumeSkipsCompletedSteps(t *testing.T) {
 	planPath := writePlan(t, "implement auth")
 	rs := newRunState(planPath)
 
-	// Simulate steps 0-2 already completed (read plan, generate branch, create worktree).
+	// Simulate steps 0-3 already completed (read plan, create issue, generate branch, create worktree).
 	rs.Steps[0].Status = state.StepCompleted
 	rs.Steps[1].Status = state.StepCompleted
 	rs.Steps[2].Status = state.StepCompleted
+	rs.Steps[3].Status = state.StepCompleted
 	rs.Branch = "forge/auth"
 	rs.WorktreePath = t.TempDir() // use a real dir so os.Stat passes
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.False(t, wt.createCalled, "worktree.Create should NOT be called on resume")
@@ -266,23 +279,22 @@ func TestRun_ResumeAfterAgentFailure(t *testing.T) {
 	planPath := writePlan(t, "implement auth")
 	rs := newRunState(planPath)
 
-	// Simulate steps 0-2 completed, step 3 (agent) failed.
+	// Simulate steps 0-3 completed, step 4 (agent) failed.
 	rs.Steps[0].Status = state.StepCompleted
 	rs.Steps[1].Status = state.StepCompleted
 	rs.Steps[2].Status = state.StepCompleted
-	rs.Steps[3].Status = state.StepFailed
-	rs.Steps[3].Error = "agent crashed"
+	rs.Steps[3].Status = state.StepCompleted
+	rs.Steps[4].Status = state.StepFailed
+	rs.Steps[4].Error = "agent crashed"
 	rs.Branch = "forge/auth"
 	rs.WorktreePath = t.TempDir()
 	rs.Status = state.RunActive // reset to active for resume
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.True(t, ag.called, "agent should be re-run on resume")
-	assert.Equal(t, state.StepCompleted, rs.Steps[3].Status)
+	assert.Equal(t, state.StepCompleted, rs.Steps[4].Status)
 	assert.Equal(t, state.RunCompleted, rs.Status)
 }
 
@@ -294,9 +306,7 @@ func TestRun_WorktreePreservedOnFailure(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
 	assert.False(t, wt.removeCalled, "worktree should be preserved on failure for resume")
@@ -311,9 +321,7 @@ func TestRun_WorktreeCleanedOnSuccess(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.True(t, wt.removeCalled, "worktree should be cleaned on success")
@@ -327,16 +335,15 @@ func TestRun_ResumeWithMissingWorktree(t *testing.T) {
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
 
-	// Simulate steps 0-2 completed but worktree dir was deleted.
+	// Simulate steps 0-3 completed but worktree dir was deleted.
 	rs.Steps[0].Status = state.StepCompleted
 	rs.Steps[1].Status = state.StepCompleted
 	rs.Steps[2].Status = state.StepCompleted
+	rs.Steps[3].Status = state.StepCompleted
 	rs.Branch = "forge/auth"
 	rs.WorktreePath = "/nonexistent/worktree/path"
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no longer exists")
@@ -350,13 +357,161 @@ func TestRun_ArtifactsStoredInState(t *testing.T) {
 	planPath := writePlan(t, "implement auth")
 	rs := newRunState(planPath)
 
-	err := Run(context.Background(), testConfig(), Providers{
-		VCS: vc, Agent: ag, Worktree: wt,
-	}, planPath, rs, testLogger())
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
 	assert.Equal(t, "forge/auth", rs.Branch)
 	assert.Equal(t, "/tmp/wt-artifacts", rs.WorktreePath)
 	assert.Equal(t, "https://github.com/owner/repo/pull/99", rs.PRUrl)
 	assert.Equal(t, 99, rs.PRNumber)
+}
+
+// --- Phase 2 tests: Tracker ---
+
+func TestRun_TrackerNil_SkipsIssueCreation(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Tracker: nil,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Empty(t, rs.IssueKey)
+	assert.Empty(t, rs.IssueURL)
+}
+
+func TestRun_TrackerCreatesIssue(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+	tr := &mockTracker{issue: &provider.Issue{Key: "PROJ-42", URL: "https://jira.example.com/browse/PROJ-42"}}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Tracker: tr,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-42", rs.IssueKey)
+	assert.Equal(t, "https://jira.example.com/browse/PROJ-42", rs.IssueURL)
+}
+
+func TestRun_TrackerFails_PipelineFails(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{}
+	tr := &mockTracker{err: errors.New("jira auth failed")}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Tracker: tr,
+	}, planPath, rs, testLogger())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "step 2")
+	assert.Contains(t, err.Error(), "create issue")
+	assert.False(t, ag.called, "agent should not run if tracker fails")
+}
+
+// --- Phase 2 tests: Notifier ---
+
+func TestRun_NotifierNil_SkipsNotification(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Notifier: nil,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+}
+
+func TestRun_NotifierCalled_OnSuccess(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+	n := &mockNotifier{}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Notifier: n,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	require.Len(t, n.messages, 1)
+	assert.Contains(t, n.messages[0], "PR ready for review")
+	assert.Contains(t, n.messages[0], "https://github.com/owner/repo/pull/1")
+}
+
+func TestRun_NotifierCalled_OnSuccess_WithIssue(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+	tr := &mockTracker{issue: &provider.Issue{Key: "PROJ-42", URL: "https://jira.example.com/browse/PROJ-42"}}
+	n := &mockNotifier{}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Tracker: tr, Notifier: n,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	require.Len(t, n.messages, 1)
+	assert.Contains(t, n.messages[0], "PR ready for review")
+	assert.Contains(t, n.messages[0], "PROJ-42")
+}
+
+func TestRun_NotifierCalled_OnFailure(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{err: errors.New("agent crashed")}
+	vc := &mockVCS{}
+	n := &mockNotifier{}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Notifier: n,
+	}, planPath, rs, testLogger())
+
+	require.Error(t, err)
+	// Best-effort failure notification.
+	require.Len(t, n.messages, 1)
+	assert.Contains(t, n.messages[0], "forge pipeline failed")
+	assert.Contains(t, n.messages[0], "agent crashed")
+}
+
+func TestRun_NotifierFailure_FailsPipeline(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+	n := &mockNotifier{err: errors.New("webhook failed")}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Notifier: n,
+	}, planPath, rs, testLogger())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "step 8")
+	assert.Contains(t, err.Error(), "notify")
 }

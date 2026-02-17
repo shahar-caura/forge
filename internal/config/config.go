@@ -53,6 +53,7 @@ type TrackerConfig struct {
 	BaseURL  string `yaml:"base_url"`
 	Email    string `yaml:"email"`
 	Token    string `yaml:"token"`
+	BoardID  string `yaml:"board_id"`
 }
 
 type NotifierConfig struct {
@@ -124,6 +125,29 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Worktree.CreateCmd == "" {
 		errs = append(errs, errors.New("worktree.create_cmd is required"))
+	}
+
+	// Only validate tracker fields when provider is set.
+	if cfg.Tracker.Provider != "" {
+		if cfg.Tracker.Project == "" {
+			errs = append(errs, errors.New("tracker.project is required when tracker.provider is set"))
+		}
+		if cfg.Tracker.BaseURL == "" {
+			errs = append(errs, errors.New("tracker.base_url is required when tracker.provider is set"))
+		}
+		if cfg.Tracker.Email == "" {
+			errs = append(errs, errors.New("tracker.email is required when tracker.provider is set"))
+		}
+		if cfg.Tracker.Token == "" {
+			errs = append(errs, errors.New("tracker.token is required when tracker.provider is set"))
+		}
+	}
+
+	// Only validate notifier fields when provider is set.
+	if cfg.Notifier.Provider != "" {
+		if cfg.Notifier.WebhookURL == "" {
+			errs = append(errs, errors.New("notifier.webhook_url is required when notifier.provider is set"))
+		}
 	}
 
 	return errors.Join(errs...)

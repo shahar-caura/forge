@@ -153,6 +153,12 @@ Everything not in V1. Roughly priority-ordered.
 
 ## Future / Maybe
 
+### Jira Board & Sprint Management
+- [ ] **Per-plan board override** — plan frontmatter `board_id` overrides global config
+- [ ] **`forge boards`** — list available boards from Jira
+- [ ] **`forge run --board <id>`** / `--no-board` — CLI flag override for board selection
+- [ ] **Auto-detect board from project** — `GET /rest/agile/1.0/board?projectKeyOrId=CAURA`
+
 - [ ] **Web dashboard** — view running tasks, logs, PR status (React + SSE)
 - [ ] **Persistent state** — SQLite for task history, retry counts, cost tracking
 - [ ] **Self-hosted models** — vLLM/SGLang serving MiniMax M2.5 on own GPU
