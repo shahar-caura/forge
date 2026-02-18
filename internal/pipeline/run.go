@@ -148,10 +148,18 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		lastErr = err
 		return err
 	}
-	// On resume with completed worktree step, validate worktree still exists.
+	// On resume with completed worktree step, re-create if cleaned up.
 	if worktreeWasCompleted && worktreePath != "" {
 		if _, err := os.Stat(worktreePath); err != nil {
-			return fmt.Errorf("step 4 (create worktree): worktree path %q no longer exists", worktreePath)
+			logger.Info("worktree no longer exists, re-creating", "path", worktreePath)
+			path, err := providers.Worktree.Create(ctx, branch, cfg.VCS.BaseBranch)
+			if err != nil {
+				lastErr = fmt.Errorf("step 4 (create worktree): re-creating: %w", err)
+				return lastErr
+			}
+			worktreePath = path
+			rs.WorktreePath = worktreePath
+			_ = rs.Save()
 		}
 	}
 

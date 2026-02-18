@@ -166,6 +166,32 @@ func TestRenderTemplate_ExpandsTilde(t *testing.T) {
 	assert.Equal(t, "/tmp/wt", fields[2])
 }
 
+func TestCreate_ReattachesExistingBranch(t *testing.T) {
+	repoDir := initBareRepo(t)
+
+	// Create and remove a worktree to leave the branch behind.
+	wtPath := filepath.Join(repoDir, ".worktrees", "existing-branch")
+	run(t, repoDir, "git", "worktree", "add", "-b", "existing-branch", wtPath, "master")
+	run(t, repoDir, "git", "worktree", "remove", "--force", wtPath)
+
+	g := New(
+		"git worktree add -b {{.Branch}} {{.Path}} {{.BaseBranch}}",
+		"git worktree remove --force {{.Path}}",
+		true,
+		repoDir,
+		testLogger(),
+	)
+
+	// Create should detect the existing branch and reattach without -b.
+	path, err := g.Create(context.Background(), "existing-branch", "master")
+	require.NoError(t, err)
+	assert.Equal(t, wtPath, path)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
 func TestCreate_ContextCancelled(t *testing.T) {
 	repoDir := initBareRepo(t)
 

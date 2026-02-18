@@ -45,6 +45,26 @@ func New(createCmd, removeCmd string, cleanup bool, repoRoot string, logger *slo
 func (g *Git) Create(ctx context.Context, branch, baseBranch string) (string, error) {
 	wtPath := filepath.Join(g.RepoRoot, ".worktrees", branch)
 
+	// If branch already exists (resume scenario), prune stale refs and
+	// reattach directly — the create_cmd template uses -b which would fail.
+	if g.branchExists(ctx, branch) {
+		g.Logger.Info("branch already exists, reattaching worktree", "branch", branch, "path", wtPath)
+
+		// Clean up stale worktree references from previous runs.
+		prune := g.commandContext(ctx, "git", "worktree", "prune")
+		prune.Dir = g.RepoRoot
+		_ = prune.Run()
+
+		cmd := g.commandContext(ctx, "git", "worktree", "add", wtPath, branch)
+		cmd.Dir = g.RepoRoot
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("worktree reattach: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		g.Logger.Info("worktree reattached", "path", wtPath)
+		return wtPath, nil
+	}
+
 	data := templateData{Branch: branch, BaseBranch: baseBranch, Path: wtPath}
 	args, err := renderTemplate(g.CreateCmd, data)
 	if err != nil {
@@ -63,6 +83,12 @@ func (g *Git) Create(ctx context.Context, branch, baseBranch string) (string, er
 
 	g.Logger.Info("worktree created", "path", wtPath)
 	return wtPath, nil
+}
+
+func (g *Git) branchExists(ctx context.Context, branch string) bool {
+	cmd := g.commandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = g.RepoRoot
+	return cmd.Run() == nil
 }
 
 func (g *Git) Remove(ctx context.Context, path string) error {

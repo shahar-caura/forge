@@ -504,10 +504,11 @@ func TestRun_WorktreeCleanedOnSuccess(t *testing.T) {
 	assert.True(t, wt.removeCalled, "worktree should be cleaned on success")
 }
 
-func TestRun_ResumeWithMissingWorktree(t *testing.T) {
-	wt := &mockWorktree{}
+func TestRun_ResumeWithMissingWorktree_ReCreates(t *testing.T) {
+	newPath := t.TempDir()
+	wt := &mockWorktree{createPath: newPath}
 	ag := &mockAgent{}
-	vc := &mockVCS{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
 
 	planPath := writePlan(t, "plan")
 	rs := newRunState(planPath)
@@ -522,8 +523,30 @@ func TestRun_ResumeWithMissingWorktree(t *testing.T) {
 
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
+	require.NoError(t, err)
+	assert.True(t, wt.createCalled, "worktree should be re-created")
+	assert.Equal(t, newPath, rs.WorktreePath, "worktree path should be updated")
+}
+
+func TestRun_ResumeWithMissingWorktree_ReCreateFails(t *testing.T) {
+	wt := &mockWorktree{createErr: errors.New("branch not found")}
+	ag := &mockAgent{}
+	vc := &mockVCS{}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	rs.Steps[0].Status = state.StepCompleted
+	rs.Steps[1].Status = state.StepCompleted
+	rs.Steps[2].Status = state.StepCompleted
+	rs.Steps[3].Status = state.StepCompleted
+	rs.Branch = "forge/auth"
+	rs.WorktreePath = "/nonexistent/worktree/path"
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no longer exists")
+	assert.Contains(t, err.Error(), "re-creating")
 }
 
 func TestRun_ArtifactsStoredInState(t *testing.T) {
