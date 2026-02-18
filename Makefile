@@ -1,10 +1,13 @@
-.PHONY: build test test-v lint clean validate fmt vet run
+.PHONY: build install test test-v lint clean validate fmt vet run
 
 BINARY := forge
 BUILD_DIR := bin
 
 build:
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/forge
+
+install:
+	go install ./cmd/forge
 
 run: build
 	./$(BUILD_DIR)/$(BINARY) run $(filter-out $@,$(MAKECMDGOALS))

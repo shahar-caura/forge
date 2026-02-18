@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shahar-caura/forge/internal/config"
@@ -62,8 +63,7 @@ func cmdRun(logger *slog.Logger) error {
 	}
 
 	// Generate run ID: YYYYMMDD-HHMMSS-<slug>
-	slug := pipeline.BranchName(planPath)
-	slug = slug[len("forge/"):] // strip "forge/" prefix
+	slug := pipeline.SlugFromTitle(filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath))))
 	runID := time.Now().Format("20060102-150405") + "-" + slug
 
 	rs := state.New(runID, planPath)

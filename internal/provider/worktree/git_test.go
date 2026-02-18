@@ -151,6 +151,21 @@ func TestCreate_Failure(t *testing.T) {
 	assert.Contains(t, err.Error(), "worktree create")
 }
 
+func TestRenderTemplate_ExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	fields, err := renderTemplate("~/bin/my-script {{.Branch}} {{.Path}}", templateData{
+		Branch: "feat-1",
+		Path:   "/tmp/wt",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(home, "bin/my-script"), fields[0])
+	assert.Equal(t, "feat-1", fields[1])
+	assert.Equal(t, "/tmp/wt", fields[2])
+}
+
 func TestCreate_ContextCancelled(t *testing.T) {
 	repoDir := initBareRepo(t)
 

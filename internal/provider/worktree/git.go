@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,17 @@ func renderTemplate(tmplStr string, data templateData) ([]string, error) {
 	fields := strings.Fields(buf.String())
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("template produced empty command")
+	}
+
+	// Expand ~ to home directory; exec.Command doesn't do shell expansion.
+	if home, err := os.UserHomeDir(); err == nil {
+		for i, f := range fields {
+			if f == "~" {
+				fields[i] = home
+			} else if strings.HasPrefix(f, "~/") {
+				fields[i] = filepath.Join(home, f[2:])
+			}
+		}
 	}
 
 	return fields, nil

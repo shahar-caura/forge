@@ -30,12 +30,10 @@ Everything not in V1. Roughly priority-ordered.
   - Signal via `chan struct{}` when merged
 - [ ] **Multiple plans in one run** — `forge run` reads all plans from config, builds DAG, runs in parallel
 - [ ] **Worktree pool** — multiple concurrent worktrees, cleanup on completion
-- [ ] **Plan file format** — standardize frontmatter for metadata:
+- [x] **Plan file format** — frontmatter parser for title field (V1). Extended metadata (id, depends_on, security) deferred to V2.
   ```yaml
   ---
-  id: auth
-  depends_on: []
-  security: standard
+  title: Deploy Server
   ---
   # Plan content...
   ```
@@ -86,6 +84,7 @@ Everything not in V1. Roughly priority-ordered.
 
 ## V4 — Feedback Loop
 
+- [x] **CR feedback loop (single pass)** — poll for bot review comment, agent fixes, push, reply (V1)
 - [ ] **CR retry loop** — configurable max retries (not just once)
 - [ ] **Human-in-the-loop via GitHub** — watch for new comments after "ready for review" notification
   - Poll PR comments for new human comments

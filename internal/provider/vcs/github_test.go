@@ -2,6 +2,7 @@ package vcs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -99,4 +100,96 @@ func TestCreatePR_Failure(t *testing.T) {
 	_, err := g.CreatePR(context.Background(), "feat-branch", "main", "title", "body")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gh pr create")
+}
+
+// --- GetPRComments tests ---
+
+func TestGetPRComments_Success(t *testing.T) {
+	type ghComment struct {
+		ID   int `json:"id"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Body string `json:"body"`
+	}
+	c1 := ghComment{ID: 100, Body: "Looks good"}
+	c1.User.Login = "reviewer"
+	c2 := ghComment{ID: 101, Body: "Claude finished"}
+	c2.User.Login = "claude-bot"
+
+	data, err := json.Marshal([]ghComment{c1, c2})
+	require.NoError(t, err)
+
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: string(data), exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	comments, err := g.GetPRComments(context.Background(), 42)
+	require.NoError(t, err)
+	require.Len(t, comments, 2)
+	assert.Equal(t, "100", comments[0].ID)
+	assert.Equal(t, "reviewer", comments[0].Author)
+	assert.Equal(t, "Looks good", comments[0].Body)
+	assert.Equal(t, "claude-bot", comments[1].Author)
+}
+
+func TestGetPRComments_APIError(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "not found", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	_, err := g.GetPRComments(context.Background(), 999)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh api get comments")
+}
+
+// --- PostPRComment tests ---
+
+func TestPostPRComment_Success(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.PostPRComment(context.Background(), 42, "Fix applied")
+	require.NoError(t, err)
+}
+
+func TestPostPRComment_Error(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "auth required", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.PostPRComment(context.Background(), 42, "Fix applied")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh pr comment")
+}
+
+// --- AmendAndForcePush tests ---
+
+func TestAmendAndForcePush_Success(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.AmendAndForcePush(context.Background(), t.TempDir(), "feat-branch")
+	require.NoError(t, err)
+	assert.Len(t, ct.calls, 3)
+}
+
+func TestAmendAndForcePush_Failure(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"git": {stdout: "nothing to commit", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.AmendAndForcePush(context.Background(), t.TempDir(), "feat-branch")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "git add")
 }

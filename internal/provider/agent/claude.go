@@ -26,23 +26,26 @@ func New(timeout time.Duration, logger *slog.Logger) *Claude {
 	}
 }
 
-func (c *Claude) Run(ctx context.Context, dir, prompt string) error {
+func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
 	c.Logger.Info("running agent", "dir", dir, "timeout", c.Timeout)
 
-	cmd := c.commandContext(ctx, "claude", "-p", prompt, "--allowedTools", "Read,Write,Bash")
+	cmd := c.commandContext(ctx, "claude", "-p", prompt,
+		"--allowedTools", "Read,Write,Bash",
+		"--output-format", "json",
+	)
 	cmd.Dir = dir
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("agent timed out after %s", c.Timeout)
+			return string(out), fmt.Errorf("agent timed out after %s", c.Timeout)
 		}
-		return fmt.Errorf("agent failed: %w: %s", err, out)
+		return string(out), fmt.Errorf("agent failed: %w: %s", err, out)
 	}
 
 	c.Logger.Info("agent completed")
-	return nil
+	return string(out), nil
 }

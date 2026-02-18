@@ -26,11 +26,16 @@ type Comment struct {
 type VCS interface {
 	CommitAndPush(ctx context.Context, dir, branch, message string) error
 	CreatePR(ctx context.Context, branch, baseBranch, title, body string) (*PR, error)
+	GetPRComments(ctx context.Context, prNumber int) ([]Comment, error)
+	PostPRComment(ctx context.Context, prNumber int, body string) error
+	AmendAndForcePush(ctx context.Context, dir, branch string) error
+	HasChanges(ctx context.Context, dir string) (bool, error)
 }
 
 // Agent runs an AI coding agent with a prompt in a working directory.
+// Run returns the raw agent output (for logging/debugging) and any error.
 type Agent interface {
-	Run(ctx context.Context, dir, prompt string) error
+	Run(ctx context.Context, dir, prompt string) (output string, err error)
 }
 
 // Worktree manages isolated working directories for parallel development.

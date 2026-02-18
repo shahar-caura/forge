@@ -255,3 +255,135 @@ worktree:
 	assert.Empty(t, cfg.Tracker.Provider)
 	assert.Empty(t, cfg.Notifier.Provider)
 }
+
+// --- CR Config tests ---
+
+func TestLoad_CRConfigParsed(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  poll_timeout: 10m
+  poll_interval: 30s
+  comment_pattern: "Claude finished"
+  fix_strategy: amend
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.CR.Enabled)
+	assert.Equal(t, 10*time.Minute, cfg.CR.PollTimeout.Duration)
+	assert.Equal(t, 30*time.Second, cfg.CR.PollInterval.Duration)
+	assert.Equal(t, "Claude finished", cfg.CR.CommentPattern)
+	assert.Equal(t, "amend", cfg.CR.FixStrategy)
+}
+
+func TestLoad_CRConfigDefaults(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "review done"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, 5*time.Minute, cfg.CR.PollTimeout.Duration)
+	assert.Equal(t, 15*time.Second, cfg.CR.PollInterval.Duration)
+	assert.Equal(t, "amend", cfg.CR.FixStrategy)
+}
+
+func TestLoad_CRConfigDisabled_NoValidation(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: false
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.NoError(t, err, "disabled CR should not validate fields")
+}
+
+func TestLoad_CRConfigEnabled_MissingPattern(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.comment_pattern")
+}
+
+func TestLoad_CRConfigEnabled_InvalidStrategy(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "done"
+  fix_strategy: squash
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.fix_strategy")
+}
+
+func TestLoad_CRConfigNewCommitStrategy(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "review done"
+  fix_strategy: new-commit
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "new-commit", cfg.CR.FixStrategy)
+}

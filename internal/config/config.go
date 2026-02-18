@@ -35,6 +35,16 @@ type Config struct {
 	Agent    AgentConfig    `yaml:"agent"`
 	Worktree WorktreeConfig `yaml:"worktree"`
 	State    StateConfig    `yaml:"state"`
+	CR       CRConfig       `yaml:"cr"`
+}
+
+// CRConfig controls the code review feedback loop.
+type CRConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	PollTimeout    Duration `yaml:"poll_timeout"`
+	PollInterval   Duration `yaml:"poll_interval"`
+	CommentPattern string   `yaml:"comment_pattern"`
+	FixStrategy    string   `yaml:"fix_strategy"`
 }
 
 type StateConfig struct {
@@ -73,8 +83,10 @@ type WorktreeConfig struct {
 }
 
 const (
-	defaultTimeout   = 45 * time.Minute
-	defaultRetention = 7 * 24 * time.Hour // 168h
+	defaultTimeout      = 45 * time.Minute
+	defaultRetention    = 7 * 24 * time.Hour // 168h
+	defaultPollTimeout  = 5 * time.Minute
+	defaultPollInterval = 15 * time.Second
 )
 
 // Load reads, expands env vars, parses, and validates a forge config file.
@@ -96,6 +108,17 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.State.Retention.Duration == 0 {
 		cfg.State.Retention.Duration = defaultRetention
+	}
+	if cfg.CR.Enabled {
+		if cfg.CR.PollTimeout.Duration == 0 {
+			cfg.CR.PollTimeout.Duration = defaultPollTimeout
+		}
+		if cfg.CR.PollInterval.Duration == 0 {
+			cfg.CR.PollInterval.Duration = defaultPollInterval
+		}
+		if cfg.CR.FixStrategy == "" {
+			cfg.CR.FixStrategy = "amend"
+		}
 	}
 
 	if err := validate(&cfg); err != nil {
@@ -147,6 +170,19 @@ func validate(cfg *Config) error {
 	if cfg.Notifier.Provider != "" {
 		if cfg.Notifier.WebhookURL == "" {
 			errs = append(errs, errors.New("notifier.webhook_url is required when notifier.provider is set"))
+		}
+	}
+
+	// Only validate CR fields when enabled.
+	if cfg.CR.Enabled {
+		if cfg.CR.CommentPattern == "" {
+			errs = append(errs, errors.New("cr.comment_pattern is required when cr.enabled is true"))
+		}
+		switch cfg.CR.FixStrategy {
+		case "amend", "new-commit":
+			// valid
+		default:
+			errs = append(errs, fmt.Errorf("cr.fix_strategy must be \"amend\" or \"new-commit\", got %q", cfg.CR.FixStrategy))
 		}
 	}
 

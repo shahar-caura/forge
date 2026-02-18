@@ -40,6 +40,9 @@ var StepNames = []string{
 	"run agent",
 	"commit and push",
 	"create pr",
+	"poll cr",
+	"fix cr",
+	"push cr fix",
 	"notify",
 }
 
@@ -65,6 +68,8 @@ type RunState struct {
 	PRNumber     int    `yaml:"pr_number,omitempty"`
 	IssueKey     string `yaml:"issue_key,omitempty"`
 	IssueURL     string `yaml:"issue_url,omitempty"`
+	CRFeedback   string `yaml:"cr_feedback,omitempty"`
+	PlanTitle    string `yaml:"plan_title,omitempty"`
 
 	Steps []StepState `yaml:"steps"`
 }
