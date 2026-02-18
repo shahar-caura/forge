@@ -42,13 +42,19 @@ type mockAgent struct {
 	prompts   []string
 	callCount int
 	output    string
+	outputs   []string // per-call outputs; takes precedence over output when set
 }
 
 func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
 	m.called = true
+	idx := m.callCount
 	m.callCount++
 	m.prompts = append(m.prompts, prompt)
-	return m.output, m.err
+	out := m.output
+	if idx < len(m.outputs) {
+		out = m.outputs[idx]
+	}
+	return out, m.err
 }
 
 type mockVCS struct {
@@ -288,13 +294,31 @@ func TestSlugFromTitle(t *testing.T) {
 		{"Deploy Server", "deploy-server"},
 		{"My Cool Feature", "my-cool-feature"},
 		{"UPPER-case", "upper-case"},
-		{"special!@#chars", "specialchars"},
+		{"special!@#chars", "special-chars"},
 		{"", "unnamed"},
-		{"hello_world", "helloworld"},
+		{"hello_world", "hello-world"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			assert.Equal(t, tt.want, SlugFromTitle(tt.input))
+		})
+	}
+}
+
+func TestTitleFromFilename(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello-world", "Hello World"},
+		{"deploy_server", "Deploy Server"},
+		{"auth", "Auth"},
+		{"my-cool--feature", "My Cool Feature"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, TitleFromFilename(tt.input))
 		})
 	}
 }
@@ -777,4 +801,132 @@ func TestRun_CRLoop_Resume(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ag.called, "agent should run for fix cr step")
 	assert.Equal(t, state.RunCompleted, rs.Status)
+}
+
+// --- CR summary extraction tests ---
+
+func TestAgentResultText(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "valid JSON with result",
+			input: `{"result": "hello world"}`,
+			want:  "hello world",
+		},
+		{
+			name:  "empty result field",
+			input: `{"result": ""}`,
+			want:  `{"result": ""}`,
+		},
+		{
+			name:  "non-JSON input",
+			input: "just plain text",
+			want:  "just plain text",
+		},
+		{
+			name:  "missing result field",
+			input: `{"other": "value"}`,
+			want:  `{"other": "value"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, agentResultText(tt.input))
+		})
+	}
+}
+
+func TestExtractCRSummary(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "valid markers in JSON",
+			input: `{"result": "some text\n---CRSUMMARY---\nFixed the auth bug.\n---CRSUMMARY---\nmore text"}`,
+			want:  "Fixed the auth bug.",
+		},
+		{
+			name:  "no markers",
+			input: `{"result": "just fixed stuff"}`,
+			want:  "",
+		},
+		{
+			name:  "single marker only",
+			input: `{"result": "---CRSUMMARY---\nno closing marker"}`,
+			want:  "",
+		},
+		{
+			name:  "raw text with markers",
+			input: "before\n---CRSUMMARY---\nSummary here.\n---CRSUMMARY---\nafter",
+			want:  "Summary here.",
+		},
+		{
+			name:  "empty between markers",
+			input: "---CRSUMMARY---\n\n---CRSUMMARY---",
+			want:  "",
+		},
+		{
+			name:  "multiline summary",
+			input: "---CRSUMMARY---\n- Fixed auth\n- Updated tests\n---CRSUMMARY---",
+			want:  "- Fixed auth\n- Updated tests",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, extractCRSummary(tt.input))
+		})
+	}
+}
+
+func TestRun_CRLoop_IntelligentReplyComment(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"", // step 4: initial agent run
+			"I fixed things.\n---CRSUMMARY---\n**Fixed:** Renamed `foo` to `bar` per review.\n---CRSUMMARY---\nDone.", // step 8: fix CR
+		},
+	}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{{ID: "1", Author: "reviewer", Body: "Claude finished reviewing: rename foo to bar"}},
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.True(t, vc.postCommentCalled)
+	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", vc.postCommentBody)
+	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", rs.CRFixSummary)
+}
+
+func TestRun_CRLoop_FallbackComment(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                  // step 4: initial agent run
+			"fixed everything.", // step 8: no markers
+		},
+	}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{{ID: "1", Author: "reviewer", Body: "Claude finished reviewing: fix stuff"}},
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.True(t, vc.postCommentCalled)
+	assert.Equal(t, "CR feedback addressed. Changes pushed.", vc.postCommentBody)
+	assert.Empty(t, rs.CRFixSummary)
 }

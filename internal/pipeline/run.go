@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -97,7 +98,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 	// Determine display title: frontmatter title, or fallback to filename.
 	displayTitle := planTitle
 	if displayTitle == "" {
-		displayTitle = filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath)))
+		displayTitle = TitleFromFilename(filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath))))
 	}
 
 	// Step 1: Create issue (optional — skipped if no tracker configured).
@@ -170,7 +171,8 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 4: Run agent.
 	if err := runStep(rs, 4, logger, func() error {
-		output, err := providers.Agent.Run(ctx, worktreePath, planBody)
+		agentPrompt := "Implement the following plan. Make all necessary file changes.\n\n" + planBody
+		output, err := providers.Agent.Run(ctx, worktreePath, agentPrompt)
 		saveAgentLog(rs.ID, 4, output)
 		if err != nil {
 			return err
@@ -181,7 +183,11 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			return fmt.Errorf("checking for changes: %w", chkErr)
 		}
 		if !hasChanges {
-			return fmt.Errorf("agent produced no file changes")
+			reply := agentResultText(output)
+			if len(reply) > 300 {
+				reply = reply[:300] + "..."
+			}
+			return fmt.Errorf("agent produced no file changes; agent replied: %s", reply)
 		}
 		return nil
 	}); err != nil {
@@ -265,10 +271,14 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			return nil
 		}
 		feedback := rs.CRFeedback
-		fixPrompt := fmt.Sprintf("The following code review feedback was received:\n\n%s\n\nOriginal plan:\n\n%s\n\nPlease address the feedback.", feedback, planBody)
+		fixPrompt := fmt.Sprintf("The following code review feedback was received:\n\n%s\n\nOriginal plan:\n\n%s\n\nPlease address the feedback.\n\nAfter making all changes, output a markdown summary of what you fixed and what (if anything) was left unresolved. Wrap this summary between ---CRSUMMARY--- markers, like:\n\n---CRSUMMARY---\nYour summary here.\n---CRSUMMARY---", feedback, planBody)
 		output, err := providers.Agent.Run(ctx, worktreePath, fixPrompt)
 		saveAgentLog(rs.ID, 8, output)
-		return err
+		if err != nil {
+			return err
+		}
+		rs.CRFixSummary = extractCRSummary(output)
+		return nil
 	}); err != nil {
 		lastErr = err
 		return err
@@ -291,8 +301,12 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 				return err
 			}
 		}
-		// Best-effort reply comment.
-		_ = providers.VCS.PostPRComment(ctx, rs.PRNumber, "CR feedback addressed. Changes pushed.")
+		// Best-effort reply comment — use agent summary if available.
+		comment := "CR feedback addressed. Changes pushed."
+		if rs.CRFixSummary != "" {
+			comment = rs.CRFixSummary
+		}
+		_ = providers.VCS.PostPRComment(ctx, rs.PRNumber, comment)
 		return nil
 	}); err != nil {
 		lastErr = err
@@ -347,6 +361,35 @@ func runStep(rs *state.RunState, idx int, logger *slog.Logger, fn func() error) 
 	return nil
 }
 
+// agentResultText extracts the "result" field from `claude -p --output-format json` output.
+// Falls back to the raw string if parsing fails or the field is missing.
+func agentResultText(output string) string {
+	var parsed struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		return output
+	}
+	if parsed.Result == "" {
+		return output
+	}
+	return parsed.Result
+}
+
+var crSummaryMarker = "---CRSUMMARY---"
+
+// extractCRSummary extracts the text between ---CRSUMMARY--- markers from agent output.
+// Returns empty string if markers are missing or content is empty.
+func extractCRSummary(output string) string {
+	text := agentResultText(output)
+	parts := strings.SplitN(text, crSummaryMarker, 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	summary := strings.TrimSpace(parts[1])
+	return summary
+}
+
 // saveAgentLog writes agent output to .forge/runs/<runID>-agent-step<N>.log for debugging.
 func saveAgentLog(runID string, step int, output string) {
 	if output == "" {
@@ -363,13 +406,25 @@ var validBranch = regexp.MustCompile(`^[A-Z]+-[0-9]+(-[a-z0-9]+)+$`)
 // SlugFromTitle converts a title string to a kebab-case slug.
 func SlugFromTitle(title string) string {
 	s := strings.ToLower(title)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = nonAlphanumeric.ReplaceAllString(s, "")
+	s = nonAlphanumeric.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
 	if s == "" {
 		s = "unnamed"
 	}
 	return s
+}
+
+// TitleFromFilename converts a kebab-case or snake_case filename into a Title Cased string.
+func TitleFromFilename(name string) string {
+	words := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '-' || r == '_'
+	})
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // BranchName generates a branch name from an issue key and title.

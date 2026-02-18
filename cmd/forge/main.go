@@ -41,8 +41,12 @@ func run(logger *slog.Logger) error {
 		return cmdResume(logger)
 	case "runs":
 		return cmdRuns(logger)
+	case "steps":
+		return cmdSteps()
+	case "completion":
+		return cmdCompletion()
 	default:
-		return fmt.Errorf("usage: forge <run|resume|runs>")
+		return fmt.Errorf("usage: forge <run|resume|runs|steps|completion>")
 	}
 }
 
@@ -95,31 +99,51 @@ func cmdRun(logger *slog.Logger) error {
 
 func cmdResume(logger *slog.Logger) error {
 	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge resume <run-id>")
+		return fmt.Errorf("usage: forge resume <run-id> [--from <step-name>]")
 	}
 
 	runID := os.Args[2]
+
+	// Parse optional --from flag.
+	var fromStep string
+	for i := 3; i < len(os.Args); i++ {
+		if os.Args[i] == "--from" {
+			if i+1 >= len(os.Args) {
+				return fmt.Errorf("--from requires a step name")
+			}
+			fromStep = os.Args[i+1]
+			break
+		}
+	}
 
 	rs, err := state.Load(runID)
 	if err != nil {
 		return fmt.Errorf("loading run state: %w", err)
 	}
 
-	if rs.Status == state.RunCompleted {
-		return fmt.Errorf("run %q already completed", runID)
-	}
-
 	if _, err := os.Stat(rs.PlanPath); err != nil {
 		return fmt.Errorf("plan file %q: %w", rs.PlanPath, err)
 	}
 
-	// Reset failed status to active for re-run.
-	rs.Status = state.RunActive
-	// Reset any failed steps to pending so they get re-run.
-	for i := range rs.Steps {
-		if rs.Steps[i].Status == state.StepFailed {
-			rs.Steps[i].Status = state.StepPending
-			rs.Steps[i].Error = ""
+	if fromStep != "" {
+		idx, ok := state.StepIndex(fromStep)
+		if !ok {
+			return fmt.Errorf("unknown step %q; valid steps: %s", fromStep, strings.Join(state.StepNames, ", "))
+		}
+		rs.ResetFrom(idx)
+		logger.Info("resuming from step", "step", state.StepNames[idx])
+	} else {
+		if rs.Status == state.RunCompleted {
+			return fmt.Errorf("run %q already completed; use --from <step> to re-run from a specific step", runID)
+		}
+		// Reset failed status to active for re-run.
+		rs.Status = state.RunActive
+		// Reset any failed steps to pending so they get re-run.
+		for i := range rs.Steps {
+			if rs.Steps[i].Status == state.StepFailed {
+				rs.Steps[i].Status = state.StepPending
+				rs.Steps[i].Error = ""
+			}
 		}
 	}
 
@@ -173,6 +197,117 @@ func cmdRuns(logger *slog.Logger) error {
 
 	_ = logger // unused but kept for consistency
 	return nil
+}
+
+func cmdSteps() error {
+	for i, name := range state.StepNames {
+		fmt.Printf("%2d  %s\n", i, name)
+	}
+	return nil
+}
+
+func cmdCompletion() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: forge completion <zsh|bash>")
+	}
+	switch os.Args[2] {
+	case "zsh":
+		fmt.Print(zshCompletion())
+	case "bash":
+		fmt.Print(bashCompletion())
+	default:
+		return fmt.Errorf("unsupported shell %q; supported: zsh, bash", os.Args[2])
+	}
+	return nil
+}
+
+func stepNamesHyphenated() []string {
+	out := make([]string, len(state.StepNames))
+	for i, name := range state.StepNames {
+		out[i] = strings.ReplaceAll(name, " ", "-")
+	}
+	return out
+}
+
+func zshCompletion() string {
+	steps := stepNamesHyphenated()
+	return `#compdef forge
+
+_forge() {
+  local -a commands
+  commands=(run resume runs steps completion)
+
+  local -a steps
+  steps=(` + strings.Join(steps, " ") + `)
+
+  if (( CURRENT == 2 )); then
+    _describe 'command' commands
+    return
+  fi
+
+  case "${words[2]}" in
+    run)
+      _files -g '*.md'
+      ;;
+    resume)
+      if [[ "${words[CURRENT-1]}" == "--from" || "${words[CURRENT-1]}" == "--f" ]]; then
+        _describe 'step' steps
+      elif (( CURRENT == 3 )); then
+        local -a run_ids
+        run_ids=(${(f)"$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)"})
+        _describe 'run-id' run_ids
+      else
+        compadd -- --from
+      fi
+      ;;
+    completion)
+      _describe 'shell' '(zsh bash)'
+      ;;
+  esac
+}
+
+compdef _forge forge
+`
+}
+
+func bashCompletion() string {
+	steps := stepNamesHyphenated()
+	return `_forge() {
+  local cur prev commands steps
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  commands="run resume runs steps completion"
+  steps="` + strings.Join(steps, " ") + `"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
+    return
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    run)
+      COMPREPLY=( $(compgen -f -X '!*.md' -- "${cur}") )
+      ;;
+    resume)
+      if [[ "${prev}" == "--from" ]]; then
+        COMPREPLY=( $(compgen -W "${steps}" -- "${cur}") )
+      elif [[ ${COMP_CWORD} -eq 2 ]]; then
+        local run_ids
+        run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
+        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
+      else
+        COMPREPLY=( $(compgen -W "--from" -- "${cur}") )
+      fi
+      ;;
+    completion)
+      COMPREPLY=( $(compgen -W "zsh bash" -- "${cur}") )
+      ;;
+  esac
+}
+
+complete -F _forge forge
+`
 }
 
 func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers, error) {

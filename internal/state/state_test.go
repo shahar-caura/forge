@@ -185,6 +185,73 @@ func TestCleanup_DeletesOnlyCompletedOlderThanRetention(t *testing.T) {
 	assert.Contains(t, ids, "old-active")
 }
 
+func TestStepIndex_ExactMatch(t *testing.T) {
+	idx, ok := StepIndex("commit and push")
+	require.True(t, ok)
+	assert.Equal(t, 5, idx)
+}
+
+func TestStepIndex_Hyphenated(t *testing.T) {
+	idx, ok := StepIndex("commit-and-push")
+	require.True(t, ok)
+	assert.Equal(t, 5, idx)
+}
+
+func TestStepIndex_CaseInsensitive(t *testing.T) {
+	idx, ok := StepIndex("Create PR")
+	require.True(t, ok)
+	assert.Equal(t, 6, idx)
+}
+
+func TestStepIndex_NotFound(t *testing.T) {
+	_, ok := StepIndex("nonexistent")
+	assert.False(t, ok)
+}
+
+func TestResetFrom_MiddleStep(t *testing.T) {
+	rs := New("test", "plan.md")
+	// Mark all steps completed first.
+	for i := range rs.Steps {
+		rs.Steps[i].Status = StepCompleted
+	}
+	rs.Status = RunCompleted
+
+	rs.ResetFrom(5) // "commit and push"
+
+	// Steps 0-4 should be completed, 5+ should be pending.
+	for i := 0; i < 5; i++ {
+		assert.Equal(t, StepCompleted, rs.Steps[i].Status, "step %d (%s)", i, rs.Steps[i].Name)
+	}
+	for i := 5; i < len(rs.Steps); i++ {
+		assert.Equal(t, StepPending, rs.Steps[i].Status, "step %d (%s)", i, rs.Steps[i].Name)
+	}
+	assert.Equal(t, RunActive, rs.Status)
+}
+
+func TestResetFrom_FirstStep(t *testing.T) {
+	rs := New("test", "plan.md")
+	for i := range rs.Steps {
+		rs.Steps[i].Status = StepCompleted
+	}
+
+	rs.ResetFrom(0)
+
+	for _, step := range rs.Steps {
+		assert.Equal(t, StepPending, step.Status)
+	}
+}
+
+func TestResetFrom_ClearsErrors(t *testing.T) {
+	rs := New("test", "plan.md")
+	rs.Steps[5].Status = StepFailed
+	rs.Steps[5].Error = "push failed"
+
+	rs.ResetFrom(5)
+
+	assert.Equal(t, StepPending, rs.Steps[5].Status)
+	assert.Empty(t, rs.Steps[5].Error)
+}
+
 // backdateRun re-writes a run state file with a specific UpdatedAt timestamp.
 func backdateRun(t *testing.T, rs *RunState, updatedAt time.Time) {
 	t.Helper()

@@ -48,15 +48,20 @@ Test scenarios for forge. When a test is implemented, annotate with `<!-- tested
 
 ## Agent (`internal/provider/agent`)
 
-- [ ] Run `claude -p` with plan as prompt in given directory
-- [ ] Timeout after configured duration
-- [ ] Capture stdout/stderr
+- [x] Run `claude -p` with plan as prompt in given directory <!-- tested: TestRun_Success -->
+- [x] Timeout after configured duration <!-- tested: TestRun_Timeout -->
+- [x] Fail on non-zero exit <!-- tested: TestRun_NonZeroExit -->
+- [x] Handle context cancellation <!-- tested: TestRun_ContextCancelled -->
 
 ## Worktree (`internal/provider/worktree`)
 
-- [ ] Run create_cmd and capture worktree path from stdout
-- [ ] Run remove_cmd for cleanup
-- [ ] Fail if create_cmd exits non-zero
+- [x] Create worktree with git worktree add <!-- tested: TestCreate_WithGitWorktreeAdd -->
+- [x] Create worktree with custom script <!-- tested: TestCreate_WithScript -->
+- [x] Remove worktree <!-- tested: TestRemove_RealWorktree -->
+- [x] Skip remove when cleanup disabled <!-- tested: TestRemove_CleanupDisabled -->
+- [x] Fail if create_cmd exits non-zero <!-- tested: TestCreate_Failure -->
+- [x] Expand tilde in command paths <!-- tested: TestRenderTemplate_ExpandsTilde -->
+- [x] Handle context cancellation <!-- tested: TestCreate_ContextCancelled -->
 
 ## Plan (`internal/plan`)
 

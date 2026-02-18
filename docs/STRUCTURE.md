@@ -14,7 +14,7 @@ forge/
 │       ├── tracker/jira.go        # Tracker   — REST API via net/http
 │       ├── notifier/slack.go      # Notifier  — webhook POST
 │       ├── agent/claude.go        # Agent     — claude -p wrapper
-│       └── worktree/script.go     # Worktree  — custom script wrapper
+│       └── worktree/git.go        # Worktree  — template command wrapper (tilde expansion)
 ├── tests/
 │   ├── TEST_PLAN.md               # Test scenarios and coverage tracking
 │   └── plans/                     # Example plan files for testing

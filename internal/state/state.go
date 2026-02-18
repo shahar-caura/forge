@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -69,6 +70,7 @@ type RunState struct {
 	IssueKey     string `yaml:"issue_key,omitempty"`
 	IssueURL     string `yaml:"issue_url,omitempty"`
 	CRFeedback   string `yaml:"cr_feedback,omitempty"`
+	CRFixSummary string `yaml:"cr_fix_summary,omitempty"`
 	PlanTitle    string `yaml:"plan_title,omitempty"`
 
 	Steps []StepState `yaml:"steps"`
@@ -159,6 +161,33 @@ func List() ([]*RunState, error) {
 	})
 
 	return runs, nil
+}
+
+// StepIndex returns the index of the named step, or -1 and false if not found.
+// Accepts exact names ("commit and push") or hyphenated ("commit-and-push").
+func StepIndex(name string) (int, bool) {
+	normalized := strings.ReplaceAll(strings.ToLower(name), "-", " ")
+	for i, s := range StepNames {
+		if strings.ToLower(s) == normalized {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// ResetFrom marks all steps before idx as completed and idx onward as pending.
+// Sets run status to active.
+func (s *RunState) ResetFrom(idx int) {
+	for i := range s.Steps {
+		if i < idx {
+			s.Steps[i].Status = StepCompleted
+			s.Steps[i].Error = ""
+		} else {
+			s.Steps[i].Status = StepPending
+			s.Steps[i].Error = ""
+		}
+	}
+	s.Status = RunActive
 }
 
 // Cleanup deletes completed run state files older than the given retention duration.
