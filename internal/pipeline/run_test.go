@@ -37,20 +37,34 @@ func (m *mockWorktree) Remove(_ context.Context, _ string) error {
 }
 
 type mockAgent struct {
-	err    error
-	called bool
+	err       error
+	called    bool
+	prompts   []string
+	callCount int
+	output    string
 }
 
-func (m *mockAgent) Run(_ context.Context, _, _ string) error {
+func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
 	m.called = true
-	return m.err
+	m.callCount++
+	m.prompts = append(m.prompts, prompt)
+	return m.output, m.err
 }
 
 type mockVCS struct {
-	commitErr    error
-	prErr        error
-	pr           *provider.PR
-	commitCalled bool
+	commitErr          error
+	prErr              error
+	pr                 *provider.PR
+	commitCalled       bool
+	comments           []provider.Comment
+	getCommentsErr     error
+	getCommentsCalled  bool
+	postCommentCalled  bool
+	postCommentBody    string
+	postCommentErr     error
+	amendCalled        bool
+	amendErr           error
+	noChanges          bool // when true, HasChanges returns false
 }
 
 func (m *mockVCS) CommitAndPush(_ context.Context, _, _, _ string) error {
@@ -63,6 +77,26 @@ func (m *mockVCS) CreatePR(_ context.Context, _, _, _, _ string) (*provider.PR, 
 		return nil, m.prErr
 	}
 	return m.pr, nil
+}
+
+func (m *mockVCS) GetPRComments(_ context.Context, _ int) ([]provider.Comment, error) {
+	m.getCommentsCalled = true
+	return m.comments, m.getCommentsErr
+}
+
+func (m *mockVCS) PostPRComment(_ context.Context, _ int, body string) error {
+	m.postCommentCalled = true
+	m.postCommentBody = body
+	return m.postCommentErr
+}
+
+func (m *mockVCS) AmendAndForcePush(_ context.Context, _, _ string) error {
+	m.amendCalled = true
+	return m.amendErr
+}
+
+func (m *mockVCS) HasChanges(_ context.Context, _ string) (bool, error) {
+	return !m.noChanges, nil
 }
 
 type mockTracker struct {
@@ -105,10 +139,30 @@ func testConfig() *config.Config {
 	}
 }
 
+func testConfigWithCR() *config.Config {
+	cfg := testConfig()
+	cfg.CR = config.CRConfig{
+		Enabled:        true,
+		PollTimeout:    config.Duration{Duration: 100 * time.Millisecond},
+		PollInterval:   config.Duration{Duration: 10 * time.Millisecond},
+		CommentPattern: "Claude finished",
+		FixStrategy:    "amend",
+	}
+	return cfg
+}
+
 func writePlan(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "auth.md")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	return path
+}
+
+func writePlanNamed(t *testing.T, name, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	return path
 }
@@ -121,7 +175,7 @@ func defaultProviders(wt *mockWorktree, ag *mockAgent, vc *mockVCS) Providers {
 	return Providers{VCS: vc, Agent: ag, Worktree: wt}
 }
 
-// --- Existing tests (step numbers shifted +1 for steps after "read plan") ---
+// --- Core pipeline tests (step numbers: 1-based in errors) ---
 
 func TestRun_HappyPath(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
@@ -181,6 +235,21 @@ func TestRun_AgentFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "step 5")
 }
 
+func TestRun_AgentNoChanges(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{noChanges: true}
+
+	planPath := writePlan(t, "plan")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent produced no file changes")
+	assert.Contains(t, err.Error(), "step 5")
+}
+
 func TestRun_CommitFails(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{}
@@ -209,27 +278,111 @@ func TestRun_PRCreationFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "step 7")
 }
 
-func TestBranchName(t *testing.T) {
+// --- Branch naming tests ---
+
+func TestSlugFromTitle(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
-		{"plans/auth.md", "forge/auth"},
-		{"plans/My Cool Feature.md", "forge/my-cool-feature"},
-		{"plans/hello_world.txt", "forge/helloworld"},
-		{"plans/UPPER-case.md", "forge/upper-case"},
-		{"plans/special!@#chars.md", "forge/specialchars"},
-		{"plans/.md", "forge/unnamed"},
+		{"Deploy Server", "deploy-server"},
+		{"My Cool Feature", "my-cool-feature"},
+		{"UPPER-case", "upper-case"},
+		{"special!@#chars", "specialchars"},
+		{"", "unnamed"},
+		{"hello_world", "helloworld"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, BranchName(tt.input))
+			assert.Equal(t, tt.want, SlugFromTitle(tt.input))
 		})
 	}
 }
 
-// --- Phase 1.5 tests (step indices shifted +1) ---
+func TestBranchName(t *testing.T) {
+	tests := []struct {
+		issueKey string
+		title    string
+		want     string
+	}{
+		{"CAURA-288", "Deploy Server", "CAURA-288-deploy-server"},
+		{"PROJ-42", "My Cool Feature", "PROJ-42-my-cool-feature"},
+		{"", "Deploy Server", "forge/deploy-server"},
+		{"", "", "forge/unnamed"},
+	}
+	for _, tt := range tests {
+		name := tt.issueKey + "/" + tt.title
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, BranchName(tt.issueKey, tt.title))
+		})
+	}
+}
+
+func TestValidateBranchName(t *testing.T) {
+	assert.NoError(t, ValidateBranchName("CAURA-288-deploy-server"))
+	assert.NoError(t, ValidateBranchName("PROJ-42-my-cool-feature"))
+	assert.Error(t, ValidateBranchName("forge/deploy-server"))
+	assert.Error(t, ValidateBranchName("bad-branch"))
+	assert.Error(t, ValidateBranchName("CAURA-288")) // needs at least one slug segment
+}
+
+func TestBranchName_NoIssueKey(t *testing.T) {
+	branch := BranchName("", "Auth System")
+	assert.Equal(t, "forge/auth-system", branch)
+	assert.Error(t, ValidateBranchName(branch), "forge/ prefix should not match strict pattern")
+}
+
+// --- Frontmatter tests ---
+
+func TestRun_FrontmatterTitle_UsedForPR(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "---\ntitle: Hello World\n---\nCreate a hello world server")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Hello World", rs.PlanTitle)
+	// Branch should use the title (no issue key → forge/ prefix).
+	assert.Equal(t, "forge/hello-world", rs.Branch)
+}
+
+func TestRun_FrontmatterTitle_WithTracker(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+	tr := &mockTracker{issue: &provider.Issue{Key: "PROJ-42", URL: "https://jira.example.com/browse/PROJ-42"}}
+
+	planPath := writePlan(t, "---\ntitle: Deploy Server\n---\nDeploy the server")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), Providers{
+		VCS: vc, Agent: ag, Worktree: wt, Tracker: tr,
+	}, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-42-deploy-server", rs.Branch)
+}
+
+func TestRun_NoFrontmatter_FallbackToFilename(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth without frontmatter")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	// Filename is "auth.md" → slug is "auth".
+	assert.Equal(t, "forge/auth", rs.Branch)
+}
+
+// --- Phase 1.5 tests (state tracking + resume) ---
 
 func TestRun_StateTrackingHappyPath(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
@@ -512,6 +665,116 @@ func TestRun_NotifierFailure_FailsPipeline(t *testing.T) {
 	}, planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "step 8")
+	assert.Contains(t, err.Error(), "step 11")
 	assert.Contains(t, err.Error(), "notify")
+}
+
+// --- CR feedback loop tests ---
+
+func TestRun_CRLoop_HappyPath(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{{ID: "1", Author: "claude-bot", Body: "Claude finished reviewing"}},
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Claude finished reviewing", rs.CRFeedback)
+	assert.True(t, vc.getCommentsCalled, "should poll for comments")
+	assert.True(t, vc.amendCalled, "should amend and force push")
+	assert.True(t, vc.postCommentCalled, "should post reply comment")
+	assert.Equal(t, 2, ag.callCount, "agent should run twice: once for plan, once for fix")
+}
+
+func TestRun_CRLoop_Disabled(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	// CR disabled by default in testConfig().
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.False(t, vc.getCommentsCalled, "should not poll when CR disabled")
+	assert.False(t, vc.amendCalled, "should not amend when CR disabled")
+	assert.Equal(t, 1, ag.callCount, "agent should run only once")
+}
+
+func TestRun_CRLoop_PollTimeout(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{}, // no matching comments
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "poll timeout")
+	assert.Contains(t, err.Error(), "step 8")
+}
+
+func TestRun_CRLoop_NewCommitStrategy(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{{ID: "1", Author: "bot", Body: "Claude finished reviewing"}},
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	cfg := testConfigWithCR()
+	cfg.CR.FixStrategy = "new-commit"
+
+	err := Run(context.Background(), cfg, defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.False(t, vc.amendCalled, "should NOT amend with new-commit strategy")
+	assert.True(t, vc.commitCalled, "should use CommitAndPush for new-commit")
+}
+
+func TestRun_CRLoop_Resume(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{
+		pr:       &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1},
+		comments: []provider.Comment{{ID: "1", Author: "bot", Body: "Claude finished reviewing"}},
+	}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	// Simulate steps 0-7 completed (through poll cr), step 8 (fix cr) failed.
+	for i := 0; i <= 7; i++ {
+		rs.Steps[i].Status = state.StepCompleted
+	}
+	rs.Steps[8].Status = state.StepFailed
+	rs.Steps[8].Error = "agent crashed"
+	rs.Branch = "forge/auth"
+	rs.WorktreePath = t.TempDir()
+	rs.PRUrl = "https://github.com/owner/repo/pull/1"
+	rs.PRNumber = 1
+	rs.CRFeedback = "Claude finished reviewing"
+	rs.Status = state.RunActive
+
+	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.True(t, ag.called, "agent should run for fix cr step")
+	assert.Equal(t, state.RunCompleted, rs.Status)
 }

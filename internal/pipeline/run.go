@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/shahar-caura/forge/internal/config"
+	"github.com/shahar-caura/forge/internal/plan"
 	"github.com/shahar-caura/forge/internal/provider"
 	"github.com/shahar-caura/forge/internal/state"
 )
@@ -25,12 +27,15 @@ type Providers struct {
 
 // Run executes the forge pipeline:
 //
-//	read plan → create issue → generate branch → create worktree → run agent → commit → PR → notify.
+//	read plan → create issue → generate branch → create worktree → run agent →
+//	commit → PR → poll cr → fix cr → push cr fix → notify.
 //
 // If rs has completed steps (resume), those steps are skipped and locals are restored from rs artifacts.
 func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath string, rs *state.RunState, logger *slog.Logger) error {
 	var (
-		plan         string
+		parsedPlan   *plan.Plan
+		planBody     string
+		planTitle    string
 		branch       string
 		worktreePath string
 		lastErr      error
@@ -54,25 +59,45 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		}
 	}()
 
-	// Step 0: Read plan file.
+	// Step 0: Read plan file and parse frontmatter.
 	if err := runStep(rs, 0, logger, func() error {
 		planBytes, err := os.ReadFile(planPath)
 		if err != nil {
 			return err
 		}
-		plan = string(planBytes)
+		parsedPlan, err = plan.Parse(string(planBytes))
+		if err != nil {
+			return fmt.Errorf("parsing plan frontmatter: %w", err)
+		}
+		planBody = parsedPlan.Body
+		planTitle = parsedPlan.Title
+		rs.PlanTitle = planTitle
 		return nil
 	}); err != nil {
 		lastErr = err
 		return err
 	}
 	// Re-read plan on resume (plan content not stored in state).
-	if plan == "" {
+	if parsedPlan == nil {
 		planBytes, err := os.ReadFile(planPath)
 		if err != nil {
 			return fmt.Errorf("re-reading plan on resume: %w", err)
 		}
-		plan = string(planBytes)
+		parsedPlan, err = plan.Parse(string(planBytes))
+		if err != nil {
+			return fmt.Errorf("parsing plan frontmatter on resume: %w", err)
+		}
+		planBody = parsedPlan.Body
+		planTitle = parsedPlan.Title
+		if planTitle == "" {
+			planTitle = rs.PlanTitle
+		}
+	}
+
+	// Determine display title: frontmatter title, or fallback to filename.
+	displayTitle := planTitle
+	if displayTitle == "" {
+		displayTitle = filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath)))
 	}
 
 	// Step 1: Create issue (optional — skipped if no tracker configured).
@@ -81,8 +106,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			logger.Info("no tracker configured, skipping")
 			return nil
 		}
-		title := filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath)))
-		issue, err := providers.Tracker.CreateIssue(ctx, title, plan)
+		issue, err := providers.Tracker.CreateIssue(ctx, displayTitle, planBody)
 		if err != nil {
 			return err
 		}
@@ -97,7 +121,10 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 2: Generate branch name.
 	if err := runStep(rs, 2, logger, func() error {
-		branch = BranchName(planPath)
+		branch = BranchName(rs.IssueKey, displayTitle)
+		if err := ValidateBranchName(branch); err != nil {
+			logger.Warn("branch name validation failed, using as-is", "branch", branch, "error", err)
+		}
 		rs.Branch = branch
 		logger.Info("generated branch name", "branch", branch)
 		return nil
@@ -143,7 +170,20 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 4: Run agent.
 	if err := runStep(rs, 4, logger, func() error {
-		return providers.Agent.Run(ctx, worktreePath, plan)
+		output, err := providers.Agent.Run(ctx, worktreePath, planBody)
+		saveAgentLog(rs.ID, 4, output)
+		if err != nil {
+			return err
+		}
+		// Verify agent produced file changes — fail fast on no-op.
+		hasChanges, chkErr := providers.VCS.HasChanges(ctx, worktreePath)
+		if chkErr != nil {
+			return fmt.Errorf("checking for changes: %w", chkErr)
+		}
+		if !hasChanges {
+			return fmt.Errorf("agent produced no file changes")
+		}
+		return nil
 	}); err != nil {
 		lastErr = err
 		return err
@@ -151,7 +191,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 5: Commit and push.
 	if err := runStep(rs, 5, logger, func() error {
-		commitMsg := fmt.Sprintf("forge: %s", branch)
+		commitMsg := fmt.Sprintf("forge: %s", displayTitle)
 		return providers.VCS.CommitAndPush(ctx, worktreePath, branch, commitMsg)
 	}); err != nil {
 		lastErr = err
@@ -160,8 +200,8 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 6: Create PR.
 	if err := runStep(rs, 6, logger, func() error {
-		title := fmt.Sprintf("forge: %s", filepath.Base(strings.TrimSuffix(planPath, filepath.Ext(planPath))))
-		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, plan)
+		title := displayTitle
+		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, planBody)
 		if err != nil {
 			return err
 		}
@@ -174,8 +214,93 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		return err
 	}
 
-	// Step 7: Notify (optional — skipped if no notifier configured).
+	// Step 7: Poll CR (optional — skipped if CR not enabled).
 	if err := runStep(rs, 7, logger, func() error {
+		if !cfg.CR.Enabled {
+			logger.Info("CR feedback loop disabled, skipping")
+			return nil
+		}
+		logger.Info("polling for CR comment...", "pattern", cfg.CR.CommentPattern, "timeout", cfg.CR.PollTimeout.Duration)
+
+		pattern, err := regexp.Compile(cfg.CR.CommentPattern)
+		if err != nil {
+			return fmt.Errorf("compiling comment_pattern: %w", err)
+		}
+
+		deadline := time.Now().Add(cfg.CR.PollTimeout.Duration)
+		for {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("poll timeout: no matching CR comment found after %s", cfg.CR.PollTimeout.Duration)
+			}
+
+			comments, err := providers.VCS.GetPRComments(ctx, rs.PRNumber)
+			if err != nil {
+				return fmt.Errorf("fetching PR comments: %w", err)
+			}
+
+			for _, c := range comments {
+				if pattern.MatchString(c.Body) {
+					logger.Info("matched CR comment", "author", c.Author, "id", c.ID)
+					rs.CRFeedback = c.Body
+					return nil
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(cfg.CR.PollInterval.Duration):
+				// continue polling
+			}
+		}
+	}); err != nil {
+		lastErr = err
+		return err
+	}
+
+	// Step 8: Fix CR — re-run agent with CR feedback.
+	if err := runStep(rs, 8, logger, func() error {
+		if !cfg.CR.Enabled {
+			logger.Info("CR feedback loop disabled, skipping")
+			return nil
+		}
+		feedback := rs.CRFeedback
+		fixPrompt := fmt.Sprintf("The following code review feedback was received:\n\n%s\n\nOriginal plan:\n\n%s\n\nPlease address the feedback.", feedback, planBody)
+		output, err := providers.Agent.Run(ctx, worktreePath, fixPrompt)
+		saveAgentLog(rs.ID, 8, output)
+		return err
+	}); err != nil {
+		lastErr = err
+		return err
+	}
+
+	// Step 9: Push CR fix.
+	if err := runStep(rs, 9, logger, func() error {
+		if !cfg.CR.Enabled {
+			logger.Info("CR feedback loop disabled, skipping")
+			return nil
+		}
+		if cfg.CR.FixStrategy == "new-commit" {
+			commitMsg := fmt.Sprintf("forge: address CR feedback for %s", displayTitle)
+			if err := providers.VCS.CommitAndPush(ctx, worktreePath, branch, commitMsg); err != nil {
+				return err
+			}
+		} else {
+			// Default: amend.
+			if err := providers.VCS.AmendAndForcePush(ctx, worktreePath, branch); err != nil {
+				return err
+			}
+		}
+		// Best-effort reply comment.
+		_ = providers.VCS.PostPRComment(ctx, rs.PRNumber, "CR feedback addressed. Changes pushed.")
+		return nil
+	}); err != nil {
+		lastErr = err
+		return err
+	}
+
+	// Step 10: Notify (optional — skipped if no notifier configured).
+	if err := runStep(rs, 10, logger, func() error {
 		if providers.Notifier == nil {
 			logger.Info("no notifier configured, skipping")
 			return nil
@@ -222,20 +347,45 @@ func runStep(rs *state.RunState, idx int, logger *slog.Logger, fn func() error) 
 	return nil
 }
 
-var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]+`)
-
-// BranchName generates a sanitized branch name from a plan file path.
-func BranchName(planPath string) string {
-	base := filepath.Base(planPath)
-	base = strings.TrimSuffix(base, filepath.Ext(base))
-	base = strings.ToLower(base)
-	base = strings.ReplaceAll(base, " ", "-")
-	base = nonAlphanumeric.ReplaceAllString(base, "")
-	base = strings.Trim(base, "-")
-
-	if base == "" {
-		base = "unnamed"
+// saveAgentLog writes agent output to .forge/runs/<runID>-agent-step<N>.log for debugging.
+func saveAgentLog(runID string, step int, output string) {
+	if output == "" {
+		return
 	}
+	dir := ".forge/runs"
+	path := filepath.Join(dir, fmt.Sprintf("%s-agent-step%d.log", runID, step))
+	_ = os.WriteFile(path, []byte(output), 0o644)
+}
 
-	return "forge/" + base
+var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]+`)
+var validBranch = regexp.MustCompile(`^[A-Z]+-[0-9]+(-[a-z0-9]+)+$`)
+
+// SlugFromTitle converts a title string to a kebab-case slug.
+func SlugFromTitle(title string) string {
+	s := strings.ToLower(title)
+	s = strings.ReplaceAll(s, " ", "-")
+	s = nonAlphanumeric.ReplaceAllString(s, "")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "unnamed"
+	}
+	return s
+}
+
+// BranchName generates a branch name from an issue key and title.
+// With an issue key: "CAURA-288-deploy-server". Without: "forge/deploy-server".
+func BranchName(issueKey, title string) string {
+	slug := SlugFromTitle(title)
+	if issueKey == "" {
+		return "forge/" + slug
+	}
+	return issueKey + "-" + slug
+}
+
+// ValidateBranchName checks that a branch name matches the strict pattern ^[A-Z]+-[0-9]+(-[a-z0-9]+)+$.
+func ValidateBranchName(branch string) error {
+	if !validBranch.MatchString(branch) {
+		return fmt.Errorf("branch name %q does not match pattern ^[A-Z]+-[0-9]+(-[a-z0-9]+)+$", branch)
+	}
+	return nil
 }
