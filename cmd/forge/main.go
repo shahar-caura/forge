@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +34,7 @@ func main() {
 
 func run(logger *slog.Logger) error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: forge <run|resume|runs>")
+		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|completion>")
 	}
 
 	switch os.Args[1] {
@@ -41,12 +44,16 @@ func run(logger *slog.Logger) error {
 		return cmdResume(logger)
 	case "runs":
 		return cmdRuns(logger)
+	case "status":
+		return cmdStatus()
+	case "logs":
+		return cmdLogs()
 	case "steps":
 		return cmdSteps()
 	case "completion":
 		return cmdCompletion()
 	default:
-		return fmt.Errorf("usage: forge <run|resume|runs|steps|completion>")
+		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|completion>")
 	}
 }
 
@@ -206,6 +213,97 @@ func cmdSteps() error {
 	return nil
 }
 
+func cmdStatus() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: forge status <run-id>")
+	}
+
+	rs, err := state.Load(os.Args[2])
+	if err != nil {
+		return fmt.Errorf("loading run state: %w", err)
+	}
+
+	elapsed := rs.UpdatedAt.Sub(rs.CreatedAt).Truncate(time.Second)
+	if rs.Status == state.RunActive {
+		elapsed = time.Since(rs.CreatedAt).Truncate(time.Second)
+	}
+
+	fmt.Printf("Run:      %s\n", rs.ID)
+	fmt.Printf("Status:   %s\n", rs.Status)
+	fmt.Printf("Plan:     %s\n", rs.PlanPath)
+	fmt.Printf("Elapsed:  %s\n", elapsed)
+	if rs.Branch != "" {
+		fmt.Printf("Branch:   %s\n", rs.Branch)
+	}
+	if rs.PRUrl != "" {
+		fmt.Printf("PR:       %s\n", rs.PRUrl)
+	}
+	fmt.Println()
+
+	fmt.Printf("%-4s  %-20s  %-10s  %s\n", "STEP", "NAME", "STATUS", "ERROR")
+	for i, step := range rs.Steps {
+		marker := " "
+		if step.Status == state.StepRunning {
+			marker = ">"
+		}
+		errMsg := ""
+		if step.Error != "" {
+			errMsg = step.Error
+			if len(errMsg) > 60 {
+				errMsg = errMsg[:60] + "..."
+			}
+		}
+		fmt.Printf("%s%3d  %-20s  %-10s  %s\n", marker, i, step.Name, step.Status, errMsg)
+	}
+
+	return nil
+}
+
+func cmdLogs() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: forge logs <run-id> [--follow|-f] [--step N]")
+	}
+
+	runID := os.Args[2]
+	step := 4 // default: agent run step
+	follow := false
+
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--follow", "-f":
+			follow = true
+		case "--step":
+			if i+1 >= len(os.Args) {
+				return fmt.Errorf("--step requires a number")
+			}
+			n, err := strconv.Atoi(os.Args[i+1])
+			if err != nil {
+				return fmt.Errorf("--step: %w", err)
+			}
+			step = n
+			i++
+		}
+	}
+
+	logPath := pipeline.AgentLogPath(runID, step)
+
+	if follow {
+		cmd := exec.Command("tail", "-f", logPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	f, err := os.Open(logPath)
+	if err != nil {
+		return fmt.Errorf("opening log: %w", err)
+	}
+	defer f.Close()
+
+	_, err = io.Copy(os.Stdout, f)
+	return err
+}
+
 func cmdCompletion() error {
 	if len(os.Args) < 3 {
 		return fmt.Errorf("usage: forge completion <zsh|bash>")
@@ -235,10 +333,13 @@ func zshCompletion() string {
 
 _forge() {
   local -a commands
-  commands=(run resume runs steps completion)
+  commands=(run resume runs status logs steps completion)
 
   local -a steps
   steps=(` + strings.Join(steps, " ") + `)
+
+  local -a run_ids
+  run_ids=(${(f)"$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)"})
 
   if (( CURRENT == 2 )); then
     _describe 'command' commands
@@ -253,11 +354,23 @@ _forge() {
       if [[ "${words[CURRENT-1]}" == "--from" || "${words[CURRENT-1]}" == "--f" ]]; then
         _describe 'step' steps
       elif (( CURRENT == 3 )); then
-        local -a run_ids
-        run_ids=(${(f)"$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)"})
         _describe 'run-id' run_ids
       else
         compadd -- --from
+      fi
+      ;;
+    status)
+      if (( CURRENT == 3 )); then
+        _describe 'run-id' run_ids
+      fi
+      ;;
+    logs)
+      if [[ "${words[CURRENT-1]}" == "--step" ]]; then
+        _describe 'step-number' '(4 8)'
+      elif (( CURRENT == 3 )); then
+        _describe 'run-id' run_ids
+      else
+        compadd -- --follow -f --step
       fi
       ;;
     completion)
@@ -273,12 +386,13 @@ compdef _forge forge
 func bashCompletion() string {
 	steps := stepNamesHyphenated()
 	return `_forge() {
-  local cur prev commands steps
+  local cur prev commands steps run_ids
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands="run resume runs steps completion"
+  commands="run resume runs status logs steps completion"
   steps="` + strings.Join(steps, " ") + `"
+  run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
@@ -293,11 +407,23 @@ func bashCompletion() string {
       if [[ "${prev}" == "--from" ]]; then
         COMPREPLY=( $(compgen -W "${steps}" -- "${cur}") )
       elif [[ ${COMP_CWORD} -eq 2 ]]; then
-        local run_ids
-        run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
         COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
       else
         COMPREPLY=( $(compgen -W "--from" -- "${cur}") )
+      fi
+      ;;
+    status)
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
+      fi
+      ;;
+    logs)
+      if [[ "${prev}" == "--step" ]]; then
+        COMPREPLY=( $(compgen -W "4 8" -- "${cur}") )
+      elif [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
+      else
+        COMPREPLY=( $(compgen -W "--follow -f --step" -- "${cur}") )
       fi
       ;;
     completion)

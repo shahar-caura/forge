@@ -14,6 +14,7 @@ import (
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/plan"
 	"github.com/shahar-caura/forge/internal/provider"
+	"github.com/shahar-caura/forge/internal/provider/agent"
 	"github.com/shahar-caura/forge/internal/state"
 )
 
@@ -179,9 +180,14 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 4: Run agent.
 	if err := runStep(rs, 4, logger, func() error {
+		logFile, cleanup := openAgentLog(rs.ID, 4, providers.Agent, logger)
+		defer cleanup()
+
 		agentPrompt := "Implement the following plan. Make all necessary file changes.\n\n" + planBody
 		output, err := providers.Agent.Run(ctx, worktreePath, agentPrompt)
-		saveAgentLog(rs.ID, 4, output)
+		if logFile == nil {
+			saveAgentLog(rs.ID, 4, output)
+		}
 		if err != nil {
 			return err
 		}
@@ -278,10 +284,16 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			logger.Info("CR feedback loop disabled, skipping")
 			return nil
 		}
+
+		logFile, cleanup := openAgentLog(rs.ID, 8, providers.Agent, logger)
+		defer cleanup()
+
 		feedback := rs.CRFeedback
 		fixPrompt := fmt.Sprintf("The following code review feedback was received:\n\n%s\n\nOriginal plan:\n\n%s\n\nPlease address the feedback.\n\nAfter making all changes, output a markdown summary of what you fixed and what (if anything) was left unresolved. Wrap this summary between ---CRSUMMARY--- markers, like:\n\n---CRSUMMARY---\nYour summary here.\n---CRSUMMARY---", feedback, planBody)
 		output, err := providers.Agent.Run(ctx, worktreePath, fixPrompt)
-		saveAgentLog(rs.ID, 8, output)
+		if logFile == nil {
+			saveAgentLog(rs.ID, 8, output)
+		}
 		if err != nil {
 			return err
 		}
@@ -406,6 +418,33 @@ func saveAgentLog(runID string, step int, output string) {
 	dir := ".forge/runs"
 	path := filepath.Join(dir, fmt.Sprintf("%s-agent-step%d.log", runID, step))
 	_ = os.WriteFile(path, []byte(output), 0o644)
+}
+
+// AgentLogPath returns the path to the agent log file for a given run and step.
+func AgentLogPath(runID string, step int) string {
+	return filepath.Join(".forge/runs", fmt.Sprintf("%s-agent-step%d.log", runID, step))
+}
+
+// openAgentLog opens a streaming log file and wires it to the agent's LogWriter.
+// Returns the opened file (nil if agent doesn't support streaming) and a cleanup func.
+func openAgentLog(runID string, step int, a provider.Agent, logger *slog.Logger) (*os.File, func()) {
+	ca, ok := a.(*agent.Claude)
+	if !ok {
+		return nil, func() {}
+	}
+
+	path := AgentLogPath(runID, step)
+	f, err := os.Create(path)
+	if err != nil {
+		logger.Warn("failed to open agent log file, falling back to buffered", "path", path, "error", err)
+		return nil, func() {}
+	}
+
+	ca.LogWriter = f
+	return f, func() {
+		ca.LogWriter = nil
+		f.Close()
+	}
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]+`)

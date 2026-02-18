@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -71,4 +72,66 @@ func TestRun_ContextCancelled(t *testing.T) {
 
 	_, err := c.Run(ctx, t.TempDir(), "do something")
 	require.Error(t, err)
+}
+
+// stubCommandWithOutput returns a commandContext that echoes the given stdout text.
+func stubCommandWithOutput(stdout string) func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", fmt.Sprintf("echo '%s'", stdout))
+	}
+}
+
+func TestRun_StreamingToLogWriter(t *testing.T) {
+	var logBuf bytes.Buffer
+	c := New(5*time.Minute, testLogger())
+	c.LogWriter = &logBuf
+	c.commandContext = stubCommandWithOutput("hello from agent")
+
+	output, err := c.Run(context.Background(), t.TempDir(), "do something")
+	require.NoError(t, err)
+
+	assert.Contains(t, output, "hello from agent")
+	assert.Contains(t, logBuf.String(), "hello from agent")
+}
+
+func TestRun_NilLogWriter_Fallback(t *testing.T) {
+	c := New(5*time.Minute, testLogger())
+	c.LogWriter = nil // explicitly nil — should use CombinedOutput path
+	c.commandContext = stubCommandWithOutput("buffered output")
+
+	output, err := c.Run(context.Background(), t.TempDir(), "do something")
+	require.NoError(t, err)
+	assert.Contains(t, output, "buffered output")
+}
+
+func TestRun_Streaming_NonZeroExit(t *testing.T) {
+	var logBuf bytes.Buffer
+	c := New(5*time.Minute, testLogger())
+	c.LogWriter = &logBuf
+	c.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "echo 'partial output'; exit 1")
+	}
+
+	output, err := c.Run(context.Background(), t.TempDir(), "do something")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent failed")
+	assert.Contains(t, output, "partial output")
+	assert.Contains(t, logBuf.String(), "partial output")
+}
+
+func TestRun_Streaming_Timeout(t *testing.T) {
+	var logBuf bytes.Buffer
+	c := New(100*time.Millisecond, testLogger())
+	c.LogWriter = &logBuf
+	c.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		// Print something then hang.
+		return exec.CommandContext(ctx, "sh", "-c", "echo 'started'; sleep 60")
+	}
+
+	output, err := c.Run(context.Background(), t.TempDir(), "slow task")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+	// Partial output should be captured.
+	assert.Contains(t, output, "started")
+	assert.Contains(t, logBuf.String(), "started")
 }
