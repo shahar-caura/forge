@@ -24,53 +24,221 @@ import (
 	"github.com/shahar-caura/forge/internal/provider/vcs"
 	"github.com/shahar-caura/forge/internal/provider/worktree"
 	"github.com/shahar-caura/forge/internal/state"
+	"github.com/spf13/cobra"
 )
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	if err := run(logger); err != nil {
-		logger.Error("forge failed", "error", err)
+	if err := newRootCmd(logger).Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: forge <init|run|resume|runs|status|logs|steps|edit|completion>")
+func newRootCmd(logger *slog.Logger) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "forge",
+		Short:         "Execute a development plan end-to-end",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
-	switch os.Args[1] {
-	case "init":
-		return cmdInit()
-	case "run":
-		return cmdRun(logger)
-	case "resume":
-		return cmdResume(logger)
-	case "runs":
-		return cmdRuns(logger)
-	case "status":
-		return cmdStatus()
-	case "logs":
-		return cmdLogs()
-	case "steps":
-		return cmdSteps()
-	case "edit":
-		return cmdEdit(logger)
-	case "completion":
-		return cmdCompletion()
-	default:
-		return fmt.Errorf("usage: forge <init|run|resume|runs|status|logs|steps|edit|completion>")
+	root.AddCommand(
+		newInitCmd(),
+		newRunCmd(logger),
+		newPushCmd(logger),
+		newResumeCmd(logger),
+		newRunsCmd(logger),
+		newStatusCmd(),
+		newLogsCmd(),
+		newStepsCmd(),
+		newEditCmd(logger),
+	)
+
+	return root
+}
+
+func newRunCmd(logger *slog.Logger) *cobra.Command {
+	return &cobra.Command{
+		Use:   "run <plan.md>",
+		Short: "Execute a plan file",
+		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return []string{"md"}, cobra.ShellCompDirectiveFilterFileExt
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdRun(logger, args[0])
+		},
 	}
 }
 
-func cmdRun(logger *slog.Logger) error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge run <plan.md>")
+func newPushCmd(logger *slog.Logger) *cobra.Command {
+	var title, message string
+
+	cmd := &cobra.Command{
+		Use:   "push",
+		Short: "Push current branch as a PR",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdPush(logger, title, message)
+		},
 	}
 
-	planPath := os.Args[2]
+	cmd.Flags().StringVarP(&title, "title", "t", "", "PR title (required when on base branch)")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "PR body")
 
+	return cmd
+}
+
+func newResumeCmd(logger *slog.Logger) *cobra.Command {
+	var fromStep string
+
+	cmd := &cobra.Command{
+		Use:   "resume <run-id>",
+		Short: "Resume a previous run",
+		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completeRunIDs(toComplete)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdResume(logger, args[0], fromStep)
+		},
+	}
+
+	cmd.Flags().StringVar(&fromStep, "from", "", "step name to resume from")
+	cmd.RegisterFlagCompletionFunc("from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return completeStepNames(toComplete)
+	})
+
+	return cmd
+}
+
+func newRunsCmd(logger *slog.Logger) *cobra.Command {
+	return &cobra.Command{
+		Use:   "runs",
+		Short: "List all runs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdRuns(logger)
+		},
+	}
+}
+
+func newStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <run-id>",
+		Short: "Show status of a run",
+		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completeRunIDs(toComplete)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdStatus(args[0])
+		},
+	}
+}
+
+func newLogsCmd() *cobra.Command {
+	var (
+		follow bool
+		step   int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "logs <run-id>",
+		Short: "Show logs for a run",
+		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completeRunIDs(toComplete)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdLogs(args[0], follow, step)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow log output")
+	cmd.Flags().IntVar(&step, "step", 4, "step number to show logs for")
+
+	return cmd
+}
+
+func newStepsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "steps",
+		Short: "List pipeline steps",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdSteps()
+		},
+	}
+}
+
+func newEditCmd(logger *slog.Logger) *cobra.Command {
+	var (
+		push    bool
+		message string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "edit <run-id>",
+		Short: "Open a worktree for manual editing",
+		Args:  cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completeRunIDs(toComplete)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdEdit(logger, args[0], push, message)
+		},
+	}
+
+	cmd.Flags().BoolVar(&push, "push", false, "commit and push changes")
+	cmd.Flags().StringVarP(&message, "message", "m", "", "commit message (required with --push)")
+
+	return cmd
+}
+
+func newInitCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Initialize forge.yaml",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmdInit()
+		},
+	}
+}
+
+// --- Dynamic completions ---
+
+func completeRunIDs(toComplete string) ([]string, cobra.ShellCompDirective) {
+	matches, err := filepath.Glob(".forge/runs/*.yaml")
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	var ids []string
+	for _, m := range matches {
+		id := strings.TrimSuffix(filepath.Base(m), ".yaml")
+		if strings.HasPrefix(id, toComplete) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeStepNames(toComplete string) ([]string, cobra.ShellCompDirective) {
+	var names []string
+	for _, name := range state.StepNames {
+		hyphenated := strings.ReplaceAll(name, " ", "-")
+		if strings.HasPrefix(hyphenated, toComplete) {
+			names = append(names, hyphenated)
+		}
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// --- Command implementations ---
+
+func cmdRun(logger *slog.Logger, planPath string) error {
 	if _, err := os.Stat(planPath); err != nil {
 		return fmt.Errorf("plan file: %w", err)
 	}
@@ -111,32 +279,132 @@ func cmdRun(logger *slog.Logger) error {
 	return pipelineErr
 }
 
-func cmdResume(logger *slog.Logger) error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge resume <run-id> [--from <step-name>]")
+func cmdPush(logger *slog.Logger, title, message string) error {
+	// Load config.
+	cfg, err := config.Load("forge.yaml")
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
 	}
 
-	runID := os.Args[2]
+	// Must be inside a git repo.
+	if err := exec.Command("git", "rev-parse", "--is-inside-work-tree").Run(); err != nil {
+		return fmt.Errorf("not inside a git repository")
+	}
 
-	// Parse optional --from flag.
-	var fromStep string
-	for i := 3; i < len(os.Args); i++ {
-		if os.Args[i] == "--from" {
-			if i+1 >= len(os.Args) {
-				return fmt.Errorf("--from requires a step name")
-			}
-			fromStep = os.Args[i+1]
-			break
+	// Detect current branch.
+	branchOut, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return fmt.Errorf("detecting current branch: %w", err)
+	}
+	branch := strings.TrimSpace(string(branchOut))
+	if branch == "" {
+		return fmt.Errorf("detached HEAD; checkout a branch first")
+	}
+
+	// No unfinished rebase/merge.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	if reason := detectDirtyGitState(cwd); reason != "" {
+		return fmt.Errorf("unfinished %s; resolve it before pushing", reason)
+	}
+
+	// If on base branch, create a feature branch from uncommitted changes.
+	if branch == cfg.VCS.BaseBranch {
+		if title == "" {
+			return fmt.Errorf("on base branch %q; provide -t with a title to generate a branch name", cfg.VCS.BaseBranch)
 		}
+		branch = pipeline.BranchName("", title)
+		cmd := exec.Command("git", "checkout", "-b", branch)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("creating branch %q: %w: %s", branch, err, strings.TrimSpace(string(out)))
+		}
+		logger.Info("created branch", "branch", branch)
 	}
 
+	// Must have something to ship: uncommitted changes or unpushed commits.
+	hasChanges := false
+	statusOut, err := exec.Command("git", "status", "--porcelain").Output()
+	if err == nil {
+		hasChanges = len(strings.TrimSpace(string(statusOut))) > 0
+	}
+	unpushed := hasUnpushedCommits(cwd, branch)
+	if !hasChanges && !unpushed {
+		return fmt.Errorf("nothing to ship: no uncommitted changes and no unpushed commits")
+	}
+
+	// Generate run ID.
+	slug := pipeline.SlugFromTitle(branch)
+	runID := time.Now().Format("20060102-150405") + "-" + slug
+
+	rs := state.New(runID, "")
+	rs.Mode = "push"
+	if err := rs.Save(); err != nil {
+		return fmt.Errorf("saving initial run state: %w", err)
+	}
+
+	logger.Info("starting push", "id", runID, "branch", branch)
+
+	providers, err := wirePushProviders(cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	opts := pipeline.PushOpts{
+		Title:   title,
+		Message: message,
+		Dir:     cwd,
+		Branch:  branch,
+	}
+
+	pipelineErr := pipeline.Push(ctx, cfg, providers, opts, rs, logger)
+
+	if pipelineErr == nil && rs.PRUrl != "" {
+		fmt.Println(rs.PRUrl)
+	}
+
+	// Best-effort cleanup.
+	if deleted, err := state.Cleanup(cfg.State.Retention.Duration); err != nil {
+		logger.Warn("state cleanup failed", "error", err)
+	} else if deleted > 0 {
+		logger.Info("cleaned up old run states", "deleted", deleted)
+	}
+
+	return pipelineErr
+}
+
+// wirePushProviders wires only the providers needed for push (VCS, Tracker, Notifier).
+func wirePushProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers, error) {
+	p := pipeline.Providers{
+		VCS: vcs.New(cfg.VCS.Repo, logger),
+	}
+
+	if cfg.Tracker.Provider != "" {
+		p.Tracker = tracker.New(cfg.Tracker.BaseURL, cfg.Tracker.Project, cfg.Tracker.Email, cfg.Tracker.Token, cfg.Tracker.BoardID)
+	}
+
+	if cfg.Notifier.Provider != "" {
+		p.Notifier = notifier.New(cfg.Notifier.WebhookURL)
+	}
+
+	return p, nil
+}
+
+func cmdResume(logger *slog.Logger, runID, fromStep string) error {
 	rs, err := state.Load(runID)
 	if err != nil {
 		return fmt.Errorf("loading run state: %w", err)
 	}
 
-	if _, err := os.Stat(rs.PlanPath); err != nil {
-		return fmt.Errorf("plan file %q: %w", rs.PlanPath, err)
+	// Plan file check only applies to run mode (push mode may have no plan).
+	if rs.Mode != "push" {
+		if _, err := os.Stat(rs.PlanPath); err != nil {
+			return fmt.Errorf("plan file %q: %w", rs.PlanPath, err)
+		}
 	}
 
 	if fromStep != "" {
@@ -166,17 +434,34 @@ func cmdResume(logger *slog.Logger) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	logger.Info("resuming run", "id", runID, "plan", rs.PlanPath)
-
-	providers, err := wireProviders(cfg, logger)
-	if err != nil {
-		return err
-	}
+	logger.Info("resuming run", "id", runID, "mode", rs.Mode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	pipelineErr := pipeline.Run(ctx, cfg, providers, rs.PlanPath, rs, logger)
+	var pipelineErr error
+
+	if rs.Mode == "push" {
+		providers, err := wirePushProviders(cfg, logger)
+		if err != nil {
+			return err
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+		opts := pipeline.PushOpts{
+			Dir:    cwd,
+			Branch: rs.Branch,
+		}
+		pipelineErr = pipeline.Push(ctx, cfg, providers, opts, rs, logger)
+	} else {
+		providers, err := wireProviders(cfg, logger)
+		if err != nil {
+			return err
+		}
+		pipelineErr = pipeline.Run(ctx, cfg, providers, rs.PlanPath, rs, logger)
+	}
 
 	// Best-effort cleanup.
 	if deleted, err := state.Cleanup(cfg.State.Retention.Duration); err != nil {
@@ -220,12 +505,8 @@ func cmdSteps() error {
 	return nil
 }
 
-func cmdStatus() error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge status <run-id>")
-	}
-
-	rs, err := state.Load(os.Args[2])
+func cmdStatus(runID string) error {
+	rs, err := state.Load(runID)
 	if err != nil {
 		return fmt.Errorf("loading run state: %w", err)
 	}
@@ -266,32 +547,7 @@ func cmdStatus() error {
 	return nil
 }
 
-func cmdLogs() error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge logs <run-id> [--follow|-f] [--step N]")
-	}
-
-	runID := os.Args[2]
-	step := 4 // default: agent run step
-	follow := false
-
-	for i := 3; i < len(os.Args); i++ {
-		switch os.Args[i] {
-		case "--follow", "-f":
-			follow = true
-		case "--step":
-			if i+1 >= len(os.Args) {
-				return fmt.Errorf("--step requires a number")
-			}
-			n, err := strconv.Atoi(os.Args[i+1])
-			if err != nil {
-				return fmt.Errorf("--step: %w", err)
-			}
-			step = n
-			i++
-		}
-	}
-
+func cmdLogs(runID string, follow bool, step int) error {
 	logPath := pipeline.AgentLogPath(runID, step)
 
 	if follow {
@@ -311,14 +567,7 @@ func cmdLogs() error {
 	return err
 }
 
-func cmdEdit(logger *slog.Logger) error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge edit <run-id> [push]")
-	}
-
-	runID := os.Args[2]
-	push := len(os.Args) >= 4 && os.Args[3] == "push"
-
+func cmdEdit(logger *slog.Logger, runID string, push bool, message string) error {
 	rs, err := state.Load(runID)
 	if err != nil {
 		return fmt.Errorf("loading run state: %w", err)
@@ -376,9 +625,8 @@ func cmdEdit(logger *slog.Logger) error {
 	}
 
 	if push {
-		message := parseFlag(os.Args[4:], "-m")
 		if message == "" {
-			return fmt.Errorf("usage: forge edit <run-id> push -m \"description of changes\"")
+			return fmt.Errorf("--push requires -m \"description of changes\"")
 		}
 		return editPush(cfg, rs, wtPath, message, logger)
 	}
@@ -394,7 +642,7 @@ func cmdEdit(logger *slog.Logger) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "\nRun 'forge edit %s push -m \"description\"' to commit and update the PR.\n", runID)
+	fmt.Fprintf(os.Stderr, "\nRun 'forge edit %s --push -m \"description\"' to commit and update the PR.\n", runID)
 	removeHint := strings.Replace(cfg.Worktree.RemoveCmd, "{{.Path}}", wtPath, 1)
 	fmt.Fprintf(os.Stderr, "Run '%s' to exit edit mode.\n", removeHint)
 	return nil
@@ -463,15 +711,6 @@ func editPush(cfg *config.Config, rs *state.RunState, wtPath, message string, lo
 	}
 
 	return nil
-}
-
-func parseFlag(args []string, flag string) string {
-	for i, arg := range args {
-		if arg == flag && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
 }
 
 // detectDirtyGitState returns a non-empty reason if the worktree is
@@ -801,154 +1040,6 @@ func promptYesNo(scanner *bufio.Scanner, label string, defaultYes bool) bool {
 		return defaultYes
 	}
 	return input == "y" || input == "yes"
-}
-
-func cmdCompletion() error {
-	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: forge completion <zsh|bash>")
-	}
-	switch os.Args[2] {
-	case "zsh":
-		fmt.Print(zshCompletion())
-	case "bash":
-		fmt.Print(bashCompletion())
-	default:
-		return fmt.Errorf("unsupported shell %q; supported: zsh, bash", os.Args[2])
-	}
-	return nil
-}
-
-func stepNamesHyphenated() []string {
-	out := make([]string, len(state.StepNames))
-	for i, name := range state.StepNames {
-		out[i] = strings.ReplaceAll(name, " ", "-")
-	}
-	return out
-}
-
-func zshCompletion() string {
-	steps := stepNamesHyphenated()
-	return `_forge() {
-  emulate -L zsh
-
-  local -a subcmds
-  subcmds=(init run resume runs status logs steps edit completion)
-
-  local -a steps
-  steps=(` + strings.Join(steps, " ") + `)
-
-  local -a run_ids
-  run_ids=(${(f)"$(for f in .forge/runs/*.yaml(N); do basename $f .yaml; done)"})
-
-  if (( CURRENT == 2 )); then
-    _describe 'command' subcmds
-    return
-  fi
-
-  case "${words[2]}" in
-    run)
-      _files -g '*.md'
-      ;;
-    resume)
-      if [[ "${words[CURRENT-1]}" == "--from" || "${words[CURRENT-1]}" == "--f" ]]; then
-        _describe 'step' steps
-      elif (( CURRENT == 3 )); then
-        _describe 'run-id' run_ids
-      else
-        compadd -- --from
-      fi
-      ;;
-    status)
-      if (( CURRENT == 3 )); then
-        _describe 'run-id' run_ids
-      fi
-      ;;
-    edit)
-      if (( CURRENT == 3 )); then
-        _describe 'run-id' run_ids
-      elif (( CURRENT == 4 )); then
-        compadd -- push
-      fi
-      ;;
-    logs)
-      if [[ "${words[CURRENT-1]}" == "--step" ]]; then
-        local -a step_nums=(4 8)
-        _describe 'step-number' step_nums
-      elif (( CURRENT == 3 )); then
-        _describe 'run-id' run_ids
-      else
-        compadd -- --follow -f --step
-      fi
-      ;;
-    completion)
-      local -a shells=(zsh bash)
-      _describe 'shell' shells
-      ;;
-  esac
-}
-
-compdef _forge forge
-`
-}
-
-func bashCompletion() string {
-	steps := stepNamesHyphenated()
-	return `_forge() {
-  local cur prev subcmds steps run_ids
-  COMPREPLY=()
-  cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD-1]}"
-  subcmds="init run resume runs status logs steps edit completion"
-  steps="` + strings.Join(steps, " ") + `"
-  run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
-
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "${subcmds}" -- "${cur}") )
-    return
-  fi
-
-  case "${COMP_WORDS[1]}" in
-    run)
-      COMPREPLY=( $(compgen -f -X '!*.md' -- "${cur}") )
-      ;;
-    resume)
-      if [[ "${prev}" == "--from" ]]; then
-        COMPREPLY=( $(compgen -W "${steps}" -- "${cur}") )
-      elif [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
-      else
-        COMPREPLY=( $(compgen -W "--from" -- "${cur}") )
-      fi
-      ;;
-    status)
-      if [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
-      fi
-      ;;
-    edit)
-      if [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
-      elif [[ ${COMP_CWORD} -eq 3 ]]; then
-        COMPREPLY=( $(compgen -W "push" -- "${cur}") )
-      fi
-      ;;
-    logs)
-      if [[ "${prev}" == "--step" ]]; then
-        COMPREPLY=( $(compgen -W "4 8" -- "${cur}") )
-      elif [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
-      else
-        COMPREPLY=( $(compgen -W "--follow -f --step" -- "${cur}") )
-      fi
-      ;;
-    completion)
-      COMPREPLY=( $(compgen -W "zsh bash" -- "${cur}") )
-      ;;
-  esac
-}
-
-complete -F _forge forge
-`
 }
 
 func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers, error) {
