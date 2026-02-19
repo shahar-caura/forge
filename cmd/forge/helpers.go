@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -46,6 +47,34 @@ func completeStepNames(toComplete string) ([]string, cobra.ShellCompDirective) {
 		}
 	}
 	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeIssueNumbers(toComplete string) ([]string, cobra.ShellCompDirective) {
+	out, err := exec.Command("gh", "issue", "list",
+		"--state", "open",
+		"--limit", "50",
+		"--json", "number,title",
+	).Output()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	var issues []struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	}
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	var completions []string
+	for _, issue := range issues {
+		s := strconv.Itoa(issue.Number)
+		if strings.HasPrefix(s, toComplete) {
+			completions = append(completions, fmt.Sprintf("%s\t%s", s, issue.Title))
+		}
+	}
+	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
 // --- Provider wiring ---
