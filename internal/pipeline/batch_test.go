@@ -109,19 +109,39 @@ func TestRunBatch_CycleError(t *testing.T) {
 	assert.Contains(t, err.Error(), "cycle")
 }
 
-func TestFindBlocked(t *testing.T) {
-	levels := [][]int{{1}, {2, 3}, {4}}
+func TestFindBlocked_TransitiveDeps(t *testing.T) {
+	// 2 depends on 1, 4 depends on 2 — so 1 failing blocks 2 and 4, but not 3.
+	depsMap := map[int][]int{
+		2: {1},
+		4: {2},
+	}
+	issueSet := map[int]bool{1: true, 2: true, 3: true, 4: true}
 
-	// If issue 2 fails in level 1 (0-indexed), blocked = [3, 4].
-	blocked := findBlocked(2, levels, 1)
-	assert.Equal(t, []int{3, 4}, blocked)
+	blocked := findBlocked(1, depsMap, issueSet)
+	assert.ElementsMatch(t, []int{2, 4}, blocked)
 }
 
-func TestFindBlocked_FirstLevel(t *testing.T) {
-	levels := [][]int{{1, 2}, {3}}
+func TestFindBlocked_NoDependents(t *testing.T) {
+	// Issue 3 has no dependents.
+	depsMap := map[int][]int{
+		2: {1},
+	}
+	issueSet := map[int]bool{1: true, 2: true, 3: true}
 
-	blocked := findBlocked(1, levels, 0)
-	assert.Equal(t, []int{2, 3}, blocked)
+	blocked := findBlocked(3, depsMap, issueSet)
+	assert.Empty(t, blocked)
+}
+
+func TestFindBlocked_OnlyDirectDependents(t *testing.T) {
+	// 2 and 3 both depend on 1. 4 is independent.
+	depsMap := map[int][]int{
+		2: {1},
+		3: {1},
+	}
+	issueSet := map[int]bool{1: true, 2: true, 3: true, 4: true}
+
+	blocked := findBlocked(1, depsMap, issueSet)
+	assert.ElementsMatch(t, []int{2, 3}, blocked)
 }
 
 func TestRunBatch_DryRun_ExternalDepsIgnored(t *testing.T) {
