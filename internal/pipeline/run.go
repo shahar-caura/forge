@@ -55,7 +55,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 			// Best-effort failure notification — can't fail-fast when already failing.
 			if providers.Notifier != nil && lastErr != nil {
-				failMsg := fmt.Sprintf("forge pipeline failed: %s", lastErr)
+				failMsg := fmt.Sprintf("forge pipeline failed (run `%s`): %s\n`forge status %s` · `forge logs %s`", rs.ID, lastErr, rs.ID, rs.ID)
 				_ = providers.Notifier.Notify(ctx, failMsg)
 			}
 		}

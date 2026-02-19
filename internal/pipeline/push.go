@@ -32,7 +32,7 @@ func Push(ctx context.Context, cfg *config.Config, providers Providers, opts Pus
 			_ = rs.Save()
 
 			if providers.Notifier != nil && lastErr != nil {
-				failMsg := fmt.Sprintf("forge push failed: %s", lastErr)
+				failMsg := fmt.Sprintf("forge push failed (run `%s`): %s\n`forge status %s` · `forge logs %s`", rs.ID, lastErr, rs.ID, rs.ID)
 				_ = providers.Notifier.Notify(ctx, failMsg)
 			}
 		}
