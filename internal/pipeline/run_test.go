@@ -62,6 +62,8 @@ type mockVCS struct {
 	prErr              error
 	pr                 *provider.PR
 	commitCalled       bool
+	pushCalled         bool
+	pushErr            error
 	comments           []provider.Comment
 	getCommentsErr     error
 	getCommentsCalled  bool
@@ -76,6 +78,11 @@ type mockVCS struct {
 func (m *mockVCS) CommitAndPush(_ context.Context, _, _, _ string) error {
 	m.commitCalled = true
 	return m.commitErr
+}
+
+func (m *mockVCS) Push(_ context.Context, _, _ string) error {
+	m.pushCalled = true
+	return m.pushErr
 }
 
 func (m *mockVCS) CreatePR(_ context.Context, _, _, _, _ string) (*provider.PR, error) {

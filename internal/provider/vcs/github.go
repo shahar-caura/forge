@@ -55,6 +55,17 @@ func (g *GitHub) CommitAndPush(ctx context.Context, dir, branch, message string)
 	return nil
 }
 
+func (g *GitHub) Push(ctx context.Context, dir, branch string) error {
+	g.Logger.Info("pushing", "branch", branch)
+	cmd := g.commandContext(ctx, "git", "push", "-u", "origin", branch)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (g *GitHub) CreatePR(ctx context.Context, branch, baseBranch, title, body string) (*provider.PR, error) {
 	g.Logger.Info("creating PR", "branch", branch, "base", baseBranch)
 

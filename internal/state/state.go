@@ -58,6 +58,7 @@ type StepState struct {
 type RunState struct {
 	ID        string    `yaml:"id"`
 	PlanPath  string    `yaml:"plan_path"`
+	Mode      string    `yaml:"mode,omitempty"` // "" = "run", "push" = push
 	Status    RunStatus `yaml:"status"`
 	CreatedAt time.Time `yaml:"created_at"`
 	UpdatedAt time.Time `yaml:"updated_at"`

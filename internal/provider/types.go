@@ -25,6 +25,7 @@ type Comment struct {
 // VCS handles version control operations (commit, push, pull requests).
 type VCS interface {
 	CommitAndPush(ctx context.Context, dir, branch, message string) error
+	Push(ctx context.Context, dir, branch string) error
 	CreatePR(ctx context.Context, branch, baseBranch, title, body string) (*PR, error)
 	GetPRComments(ctx context.Context, prNumber int) ([]Comment, error)
 	PostPRComment(ctx context.Context, prNumber int, body string) error
