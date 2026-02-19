@@ -114,6 +114,11 @@ func Push(ctx context.Context, cfg *config.Config, providers Providers, opts Pus
 			return fmt.Errorf("checking for changes: %w", err)
 		}
 		if hasChanges {
+			if cfg.Hooks.PreCommit != "" {
+				if err := runHook(ctx, cfg.Hooks.PreCommit, opts.Dir, logger); err != nil {
+					return fmt.Errorf("pre-commit hook: %w", err)
+				}
+			}
 			commitMsg := fmt.Sprintf("forge: %s", displayTitle)
 			return providers.VCS.CommitAndPush(ctx, opts.Dir, opts.Branch, commitMsg)
 		}

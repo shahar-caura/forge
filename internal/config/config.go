@@ -37,6 +37,12 @@ type Config struct {
 	State    StateConfig    `yaml:"state"`
 	CR       CRConfig       `yaml:"cr"`
 	Editor   EditorConfig   `yaml:"editor"`
+	Hooks    HooksConfig    `yaml:"hooks"`
+}
+
+// HooksConfig holds lifecycle hook commands.
+type HooksConfig struct {
+	PreCommit string `yaml:"pre_commit"` // shell command to run before commit
 }
 
 // CRConfig controls the code review feedback loop.

@@ -58,21 +58,21 @@ func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
 }
 
 type mockVCS struct {
-	commitErr          error
-	prErr              error
-	pr                 *provider.PR
-	commitCalled       bool
-	pushCalled         bool
-	pushErr            error
-	comments           []provider.Comment
-	getCommentsErr     error
-	getCommentsCalled  bool
-	postCommentCalled  bool
-	postCommentBody    string
-	postCommentErr     error
-	amendCalled        bool
-	amendErr           error
-	noChanges          bool // when true, HasChanges returns false
+	commitErr         error
+	prErr             error
+	pr                *provider.PR
+	commitCalled      bool
+	pushCalled        bool
+	pushErr           error
+	comments          []provider.Comment
+	getCommentsErr    error
+	getCommentsCalled bool
+	postCommentCalled bool
+	postCommentBody   string
+	postCommentErr    error
+	amendCalled       bool
+	amendErr          error
+	noChanges         bool // when true, HasChanges returns false
 }
 
 func (m *mockVCS) CommitAndPush(_ context.Context, _, _, _ string) error {

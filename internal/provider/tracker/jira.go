@@ -42,10 +42,10 @@ type createIssueRequest struct {
 }
 
 type issueFields struct {
-	Project   projectKey `json:"project"`
-	Summary   string     `json:"summary"`
-	IssueType issueType  `json:"issuetype"`
-	Description adfDoc   `json:"description"`
+	Project     projectKey `json:"project"`
+	Summary     string     `json:"summary"`
+	IssueType   issueType  `json:"issuetype"`
+	Description adfDoc     `json:"description"`
 }
 
 type projectKey struct {
@@ -64,8 +64,8 @@ type adfDoc struct {
 }
 
 type adfContent struct {
-	Type    string       `json:"type"`
-	Content []adfText    `json:"content"`
+	Type    string    `json:"type"`
+	Content []adfText `json:"content"`
 }
 
 type adfText struct {

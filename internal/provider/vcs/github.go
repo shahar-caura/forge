@@ -110,7 +110,7 @@ func (g *GitHub) GetPRComments(ctx context.Context, prNumber int) ([]provider.Co
 	}
 
 	var raw []struct {
-		ID   int    `json:"id"`
+		ID   int `json:"id"`
 		User struct {
 			Login string `json:"login"`
 		} `json:"user"`

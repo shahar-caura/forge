@@ -211,6 +211,11 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 5: Commit and push.
 	if err := runStep(rs, 5, logger, func() error {
+		if cfg.Hooks.PreCommit != "" {
+			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+				return fmt.Errorf("pre-commit hook: %w", err)
+			}
+		}
 		commitMsg := fmt.Sprintf("forge: %s", displayTitle)
 		return providers.VCS.CommitAndPush(ctx, worktreePath, branch, commitMsg)
 	}); err != nil {
@@ -309,6 +314,11 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		if !cfg.CR.Enabled {
 			logger.Info("CR feedback loop disabled, skipping")
 			return nil
+		}
+		if cfg.Hooks.PreCommit != "" {
+			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+				return fmt.Errorf("pre-commit hook: %w", err)
+			}
 		}
 		if cfg.CR.FixStrategy == "new-commit" {
 			commitMsg := fmt.Sprintf("forge: address CR feedback for %s", displayTitle)
