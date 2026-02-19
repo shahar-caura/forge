@@ -17,11 +17,16 @@ import (
 )
 
 func newRunCmd(logger *slog.Logger) *cobra.Command {
-	var issueNumber int
+	var (
+		issueNumber int
+		allIssues   bool
+		label       string
+		dryRun      bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "run [plan.md]",
-		Short: "Execute a plan file or GitHub issue",
+		Short: "Execute a plan file, GitHub issue, or all open issues",
 		Args:  cobra.MaximumNArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return []string{"md"}, cobra.ShellCompDirectiveFilterFileExt
@@ -30,11 +35,20 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 			hasPlan := len(args) == 1
 			hasIssue := issueNumber > 0
 
+			// Mutex: --all-issues is incompatible with plan file and --issue.
+			if allIssues && (hasPlan || hasIssue) {
+				return fmt.Errorf("--all-issues cannot be combined with a plan file or --issue")
+			}
+
+			if allIssues {
+				return cmdRunBatch(logger, label, dryRun)
+			}
+
 			if hasPlan && hasIssue {
 				return fmt.Errorf("cannot specify both a plan file and --issue")
 			}
 			if !hasPlan && !hasIssue {
-				return fmt.Errorf("provide a plan file argument or --issue flag")
+				return fmt.Errorf("provide a plan file argument, --issue, or --all-issues")
 			}
 
 			var planPath string
@@ -46,7 +60,31 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&issueNumber, "issue", 0, "GitHub issue number to use as plan")
+	cmd.Flags().BoolVar(&allIssues, "all-issues", false, "Run all open issues in dependency order")
+	cmd.Flags().StringVar(&label, "label", "", "Filter issues by label (used with --all-issues)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print execution plan without running (used with --all-issues)")
 	return cmd
+}
+
+func cmdRunBatch(logger *slog.Logger, label string, dryRun bool) error {
+	cfg, err := config.Load("forge.yaml")
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	providers, err := wireProviders(cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	err = pipeline.RunBatch(ctx, cfg, providers, label, dryRun, logger)
+	if !dryRun {
+		cleanupOldRuns(cfg, logger)
+	}
+	return err
 }
 
 func cmdRun(logger *slog.Logger, planPath string, issueNumber int) error {

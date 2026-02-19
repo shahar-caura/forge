@@ -207,6 +207,58 @@ func TestGetIssue_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "gh issue view")
 }
 
+// --- ListIssues tests ---
+
+func TestListIssues_Success(t *testing.T) {
+	issuesJSON, err := json.Marshal([]map[string]interface{}{
+		{"number": 1, "title": "Add auth", "body": "Implement auth.", "url": "https://github.com/owner/repo/issues/1"},
+		{"number": 2, "title": "Add logging", "body": "Depends on #1", "url": "https://github.com/owner/repo/issues/2"},
+	})
+	require.NoError(t, err)
+
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: string(issuesJSON), exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	issues, err := g.ListIssues(context.Background(), "open", "")
+	require.NoError(t, err)
+	require.Len(t, issues, 2)
+	assert.Equal(t, 1, issues[0].Number)
+	assert.Equal(t, "Add auth", issues[0].Title)
+	assert.Equal(t, 2, issues[1].Number)
+	assert.Equal(t, "Depends on #1", issues[1].Body)
+}
+
+func TestListIssues_WithLabel(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "[]", exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	issues, err := g.ListIssues(context.Background(), "open", "forge")
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+
+	// Verify --label flag was passed.
+	require.Len(t, ct.calls, 1)
+	assert.Contains(t, ct.calls[0], "--label forge")
+}
+
+func TestListIssues_Error(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "auth required", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	_, err := g.ListIssues(context.Background(), "open", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh issue list")
+}
+
 // --- AmendAndForcePush tests ---
 
 func TestAmendAndForcePush_Success(t *testing.T) {

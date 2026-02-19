@@ -28,3 +28,7 @@ See [docs/STRUCTURE.md](docs/STRUCTURE.md) for project layout.
 - Shell out to CLIs over HTTP SDKs: `gh` over `go-github`, `git` over `go-git`.
 - Errors: wrap with context (`fmt.Errorf("step %d: %w", ...)`), propagate up, notify via Slack on failure.
 - Build with `make`. See [Makefile](Makefile) for targets.
+
+## Issue Authoring
+
+- Scope each issue to ≤3 files. Add "Depends on #N" in the body for execution ordering. Independent issues must not modify overlapping files — if unsure, add a dependency.

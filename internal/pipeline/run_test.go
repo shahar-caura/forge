@@ -121,6 +121,10 @@ func (m *mockVCS) GetIssue(_ context.Context, _ int) (*provider.GitHubIssue, err
 	return nil, nil
 }
 
+func (m *mockVCS) ListIssues(_ context.Context, _ string, _ string) ([]provider.GitHubIssue, error) {
+	return nil, nil
+}
+
 type mockTracker struct {
 	issue *provider.Issue
 	err   error

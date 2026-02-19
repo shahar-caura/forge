@@ -188,6 +188,33 @@ func (g *GitHub) GetIssue(ctx context.Context, number int) (*provider.GitHubIssu
 	return &issue, nil
 }
 
+func (g *GitHub) ListIssues(ctx context.Context, state string, label string) ([]provider.GitHubIssue, error) {
+	g.Logger.Info("listing issues", "state", state, "label", label)
+
+	args := []string{"issue", "list",
+		"--repo", g.Repo,
+		"--state", state,
+		"--json", "number,title,body,url",
+		"--limit", "200",
+	}
+	if label != "" {
+		args = append(args, "--label", label)
+	}
+
+	cmd := g.commandContext(ctx, "gh", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	var issues []provider.GitHubIssue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, fmt.Errorf("parsing issue list JSON: %w", err)
+	}
+
+	return issues, nil
+}
+
 func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, msgValue string) error {
 	g.Logger.Info("amending and force pushing", "branch", branch)
 

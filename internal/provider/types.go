@@ -41,6 +41,7 @@ type VCS interface {
 	AmendAndForcePushMsg(ctx context.Context, dir, branch, message string) error
 	HasChanges(ctx context.Context, dir string) (bool, error)
 	GetIssue(ctx context.Context, number int) (*GitHubIssue, error)
+	ListIssues(ctx context.Context, state string, label string) ([]GitHubIssue, error)
 }
 
 // Agent runs an AI coding agent with a prompt in a working directory.
