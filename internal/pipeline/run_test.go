@@ -61,6 +61,7 @@ type mockVCS struct {
 	commitErr         error
 	prErr             error
 	pr                *provider.PR
+	prBody            string // captured from CreatePR
 	commitCalled      bool
 	pushCalled        bool
 	pushErr           error
@@ -85,7 +86,8 @@ func (m *mockVCS) Push(_ context.Context, _, _ string) error {
 	return m.pushErr
 }
 
-func (m *mockVCS) CreatePR(_ context.Context, _, _, _, _ string) (*provider.PR, error) {
+func (m *mockVCS) CreatePR(_ context.Context, _, _, _, body string) (*provider.PR, error) {
+	m.prBody = body
 	if m.prErr != nil {
 		return nil, m.prErr
 	}
@@ -948,6 +950,39 @@ func TestRun_CRLoop_IntelligentReplyComment(t *testing.T) {
 	assert.True(t, vc.postCommentCalled)
 	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", vc.postCommentBody)
 	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", rs.CRFixSummary)
+}
+
+// --- Source issue auto-close tests ---
+
+func TestRun_SourceIssue_PRBodyContainsCloses(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+	rs.SourceIssue = 10
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Contains(t, vc.prBody, "Closes #10")
+	assert.Contains(t, vc.prBody, "implement auth")
+}
+
+func TestRun_NoSourceIssue_PRBodyUnchanged(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, "implement auth", vc.prBody)
+	assert.NotContains(t, vc.prBody, "Closes")
 }
 
 func TestRun_CRLoop_FallbackComment(t *testing.T) {

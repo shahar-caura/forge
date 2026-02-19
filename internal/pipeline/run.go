@@ -226,7 +226,11 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 	// Step 6: Create PR.
 	if err := runStep(rs, 6, logger, func() error {
 		title := displayTitle
-		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, planBody)
+		prBody := planBody
+		if rs.SourceIssue > 0 {
+			prBody = fmt.Sprintf("Closes #%d\n\n%s", rs.SourceIssue, planBody)
+		}
+		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, prBody)
 		if err != nil {
 			return err
 		}
