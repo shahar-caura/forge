@@ -533,11 +533,11 @@ func stepNamesHyphenated() []string {
 
 func zshCompletion() string {
 	steps := stepNamesHyphenated()
-	return `#compdef forge
+	return `_forge() {
+  emulate -L zsh
 
-_forge() {
-  local -a commands
-  commands=(run resume runs status logs steps edit completion)
+  local -a subcmds
+  subcmds=(run resume runs status logs steps edit completion)
 
   local -a steps
   steps=(` + strings.Join(steps, " ") + `)
@@ -546,7 +546,7 @@ _forge() {
   run_ids=(${(f)"$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)"})
 
   if (( CURRENT == 2 )); then
-    _describe 'command' commands
+    _describe 'command' subcmds
     return
   fi
 
@@ -577,7 +577,8 @@ _forge() {
       ;;
     logs)
       if [[ "${words[CURRENT-1]}" == "--step" ]]; then
-        _describe 'step-number' '(4 8)'
+        local -a step_nums=(4 8)
+        _describe 'step-number' step_nums
       elif (( CURRENT == 3 )); then
         _describe 'run-id' run_ids
       else
@@ -585,7 +586,8 @@ _forge() {
       fi
       ;;
     completion)
-      _describe 'shell' '(zsh bash)'
+      local -a shells=(zsh bash)
+      _describe 'shell' shells
       ;;
   esac
 }
@@ -597,16 +599,16 @@ compdef _forge forge
 func bashCompletion() string {
 	steps := stepNamesHyphenated()
 	return `_forge() {
-  local cur prev commands steps run_ids
+  local cur prev subcmds steps run_ids
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands="run resume runs status logs steps edit completion"
+  subcmds="run resume runs status logs steps edit completion"
   steps="` + strings.Join(steps, " ") + `"
   run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
+    COMPREPLY=( $(compgen -W "${subcmds}" -- "${cur}") )
     return
   fi
 
