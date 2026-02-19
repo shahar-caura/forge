@@ -27,6 +27,9 @@ worktree:
   remove_cmd: "git worktree remove --force {{.Path}}"
   cleanup: true             # Remove worktree after PR is opened
 
+hooks:
+  pre_commit: "make fmt && make vet"  # Run before pushing commits
+
 state:
   retention: 168h             # How long to keep completed run states (7 days)
 
