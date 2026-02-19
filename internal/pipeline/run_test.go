@@ -101,6 +101,11 @@ func (m *mockVCS) AmendAndForcePush(_ context.Context, _, _ string) error {
 	return m.amendErr
 }
 
+func (m *mockVCS) AmendAndForcePushMsg(_ context.Context, _, _, _ string) error {
+	m.amendCalled = true
+	return m.amendErr
+}
+
 func (m *mockVCS) HasChanges(_ context.Context, _ string) (bool, error) {
 	return !m.noChanges, nil
 }

@@ -150,6 +150,21 @@ Everything not in V1. Roughly priority-ordered.
 - [ ] **Audit log** — log every command the agent runs, every file it changes
 - [ ] **Allowlist/blocklist** — files the agent can/cannot touch
 
+## Known Issues
+
+### `forge edit` + rebase uses stale base branch
+
+When a user runs `forge edit <run-id>` and then manually rebases (`git rebase master`) inside the worktree, the local `master` ref may be stale. `forge edit` fetches `origin/<feature-branch>` but not `origin/<base-branch>`, so `rebase master` silently rebases against an old base. The force push "succeeds" but the PR still shows conflicts because remote master has moved ahead.
+
+**Workaround:** Run `git fetch origin master` in the worktree before rebasing, or use `git rebase origin/master`.
+
+**Possible fixes:**
+- Fetch base branch in `forge edit` alongside the feature branch
+- Detect base branch staleness and warn before allowing push
+- Avoid the scenario entirely — if forge detects PR conflicts, auto-rebase as a pipeline step before handing off to the user
+
+---
+
 ## Future / Maybe
 
 ### Jira Board & Sprint Management

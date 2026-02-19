@@ -26,3 +26,17 @@ worktree:
   create_cmd: "./scripts/git-worktree-add.sh {{.Branch}} {{.Path}} {{.BaseBranch}}"
   remove_cmd: "git worktree remove --force {{.Path}}"
   cleanup: true             # Remove worktree after PR is opened
+
+state:
+  retention: 168h             # How long to keep completed run states (7 days)
+
+cr:
+  enabled: false              # Set to true to enable CR feedback loop
+  # poll_timeout: 5m          # How long to wait for a CR comment
+  # poll_interval: 15s        # How often to poll for comments
+  # comment_pattern: ""       # Regex to match CR bot comment
+  # fix_strategy: amend       # "amend" or "new-commit"
+
+editor:
+  enabled: false              # Open editor automatically on forge edit
+  command: code               # Editor command (forge edit)

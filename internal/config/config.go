@@ -36,6 +36,7 @@ type Config struct {
 	Worktree WorktreeConfig `yaml:"worktree"`
 	State    StateConfig    `yaml:"state"`
 	CR       CRConfig       `yaml:"cr"`
+	Editor   EditorConfig   `yaml:"editor"`
 }
 
 // CRConfig controls the code review feedback loop.
@@ -82,6 +83,11 @@ type WorktreeConfig struct {
 	Cleanup   bool   `yaml:"cleanup"`
 }
 
+type EditorConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Command string `yaml:"command"`
+}
+
 const (
 	defaultTimeout      = 45 * time.Minute
 	defaultRetention    = 7 * 24 * time.Hour // 168h
@@ -119,6 +125,10 @@ func Load(path string) (*Config, error) {
 		if cfg.CR.FixStrategy == "" {
 			cfg.CR.FixStrategy = "amend"
 		}
+	}
+
+	if cfg.Editor.Command == "" {
+		cfg.Editor.Command = "code"
 	}
 
 	if err := validate(&cfg); err != nil {

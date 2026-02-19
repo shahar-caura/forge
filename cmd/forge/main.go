@@ -34,7 +34,7 @@ func main() {
 
 func run(logger *slog.Logger) error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|completion>")
+		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|edit|completion>")
 	}
 
 	switch os.Args[1] {
@@ -50,10 +50,12 @@ func run(logger *slog.Logger) error {
 		return cmdLogs()
 	case "steps":
 		return cmdSteps()
+	case "edit":
+		return cmdEdit(logger)
 	case "completion":
 		return cmdCompletion()
 	default:
-		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|completion>")
+		return fmt.Errorf("usage: forge <run|resume|runs|status|logs|steps|edit|completion>")
 	}
 }
 
@@ -304,6 +306,208 @@ func cmdLogs() error {
 	return err
 }
 
+func cmdEdit(logger *slog.Logger) error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: forge edit <run-id> [push]")
+	}
+
+	runID := os.Args[2]
+	push := len(os.Args) >= 4 && os.Args[3] == "push"
+
+	rs, err := state.Load(runID)
+	if err != nil {
+		return fmt.Errorf("loading run state: %w", err)
+	}
+
+	if rs.Branch == "" {
+		return fmt.Errorf("run %q has no branch yet (step 'generate branch' not completed)", runID)
+	}
+
+	cfg, err := config.Load("forge.yaml")
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	wtPath := rs.WorktreePath
+
+	// If worktree path is empty or directory doesn't exist, re-create it.
+	if wtPath == "" || !dirExists(wtPath) {
+		repoRoot, err := filepath.Abs(".")
+		if err != nil {
+			return fmt.Errorf("resolving repo root: %w", err)
+		}
+
+		wt := worktree.New(
+			cfg.Worktree.CreateCmd,
+			cfg.Worktree.RemoveCmd,
+			cfg.Worktree.Cleanup,
+			repoRoot,
+			logger,
+		)
+
+		wtPath, err = wt.Create(context.Background(), rs.Branch, cfg.VCS.BaseBranch)
+		if err != nil {
+			return fmt.Errorf("re-creating worktree: %w", err)
+		}
+
+		rs.WorktreePath = wtPath
+		if err := rs.Save(); err != nil {
+			return fmt.Errorf("saving run state: %w", err)
+		}
+	}
+
+	// Fast-forward local branch to match remote (agent/CR may have pushed).
+	// Skip if worktree is mid-rebase/merge — pull would fail anyway.
+	if detectDirtyGitState(wtPath) == "" {
+		pull := exec.Command("git", "fetch", "origin", rs.Branch)
+		pull.Dir = wtPath
+		if _, err := pull.CombinedOutput(); err == nil {
+			merge := exec.Command("git", "merge", "--ff-only", "origin/"+rs.Branch)
+			merge.Dir = wtPath
+			if out, err := merge.CombinedOutput(); err != nil {
+				logger.Warn("fast-forward failed (may have local changes)", "error", err, "output", strings.TrimSpace(string(out)))
+			}
+		}
+	}
+
+	if push {
+		message := parseFlag(os.Args[4:], "-m")
+		if message == "" {
+			return fmt.Errorf("usage: forge edit <run-id> push -m \"description of changes\"")
+		}
+		return editPush(cfg, rs, wtPath, message, logger)
+	}
+
+	fmt.Println(wtPath)
+
+	if cfg.Editor.Enabled {
+		cmd := exec.Command(cfg.Editor.Command, wtPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("opening editor: %w", err)
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "\nRun 'forge edit %s push -m \"description\"' to commit and update the PR.\n", runID)
+	removeHint := strings.Replace(cfg.Worktree.RemoveCmd, "{{.Path}}", wtPath, 1)
+	fmt.Fprintf(os.Stderr, "Run '%s' to exit edit mode.\n", removeHint)
+	return nil
+}
+
+func editPush(cfg *config.Config, rs *state.RunState, wtPath, message string, logger *slog.Logger) error {
+	// Fail fast if worktree is mid-rebase or mid-merge.
+	if reason := detectDirtyGitState(wtPath); reason != "" {
+		return fmt.Errorf("worktree has an unfinished %s; resolve it before pushing", reason)
+	}
+
+	ctx := context.Background()
+	v := vcs.New(cfg.VCS.Repo, logger)
+
+	hasChanges, err := v.HasChanges(ctx, wtPath)
+	if err != nil {
+		return fmt.Errorf("checking for changes: %w", err)
+	}
+
+	if !hasChanges {
+		if hasUnpushedCommits(wtPath, rs.Branch) {
+			fmt.Fprintf(os.Stderr, "Branch has diverged from remote (rebase?). Push manually:\n\n  git -C %s push --force-with-lease origin %s\n\n", wtPath, rs.Branch)
+			return fmt.Errorf("no uncommitted changes but branch has unpushed commits")
+		}
+		return fmt.Errorf("no changes to push in %s", wtPath)
+	}
+
+	switch cfg.CR.FixStrategy {
+	case "new-commit":
+		msg := fmt.Sprintf("forge: %s", message)
+		if err := v.CommitAndPush(ctx, wtPath, rs.Branch, msg); err != nil {
+			return fmt.Errorf("commit and push: %w", err)
+		}
+	default: // "amend"
+		// Append -m message to existing commit message before amending.
+		logCmd := exec.Command("git", "log", "-1", "--format=%B")
+		logCmd.Dir = wtPath
+		existing, err := logCmd.Output()
+		if err != nil {
+			return fmt.Errorf("reading commit message: %w", err)
+		}
+		newMsg := strings.TrimSpace(string(existing)) + "\n\n" + message
+		if err := v.AmendAndForcePushMsg(ctx, wtPath, rs.Branch, newMsg); err != nil {
+			return fmt.Errorf("amend and push: %w", err)
+		}
+	}
+
+	if rs.PRNumber != 0 {
+		comment := fmt.Sprintf("Manual edit: %s", message)
+		if err := v.PostPRComment(ctx, rs.PRNumber, comment); err != nil {
+			logger.Warn("failed to post PR comment", "error", err)
+		}
+	}
+
+	if rs.PRUrl != "" {
+		fmt.Println(rs.PRUrl)
+	}
+
+	if cfg.Worktree.Cleanup {
+		rm := exec.Command("git", "worktree", "remove", "--force", wtPath)
+		if out, err := rm.CombinedOutput(); err != nil {
+			logger.Warn("worktree cleanup failed", "error", err, "output", strings.TrimSpace(string(out)))
+		} else {
+			logger.Info("worktree removed", "path", wtPath)
+		}
+	}
+
+	return nil
+}
+
+func parseFlag(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// detectDirtyGitState returns a non-empty reason if the worktree is
+// mid-rebase or mid-merge, empty string if clean.
+func detectDirtyGitState(wtPath string) string {
+	// In a worktree, .git is a file ("gitdir: <path>"), not a directory.
+	gitDir := filepath.Join(wtPath, ".git")
+	if data, err := os.ReadFile(gitDir); err == nil {
+		if line := strings.TrimSpace(string(data)); strings.HasPrefix(line, "gitdir: ") {
+			gitDir = strings.TrimPrefix(line, "gitdir: ")
+			if !filepath.IsAbs(gitDir) {
+				gitDir = filepath.Join(wtPath, gitDir)
+			}
+		}
+	}
+
+	markers := []string{"rebase-merge", "rebase-apply", "MERGE_HEAD"}
+	for _, m := range markers {
+		if _, err := os.Stat(filepath.Join(gitDir, m)); err == nil {
+			return m
+		}
+	}
+	return ""
+}
+
+func hasUnpushedCommits(wtPath, branch string) bool {
+	cmd := exec.Command("git", "rev-list", "--count", "origin/"+branch+"..HEAD")
+	cmd.Dir = wtPath
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n > 0
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 func cmdCompletion() error {
 	if len(os.Args) < 3 {
 		return fmt.Errorf("usage: forge completion <zsh|bash>")
@@ -333,7 +537,7 @@ func zshCompletion() string {
 
 _forge() {
   local -a commands
-  commands=(run resume runs status logs steps completion)
+  commands=(run resume runs status logs steps edit completion)
 
   local -a steps
   steps=(` + strings.Join(steps, " ") + `)
@@ -364,6 +568,13 @@ _forge() {
         _describe 'run-id' run_ids
       fi
       ;;
+    edit)
+      if (( CURRENT == 3 )); then
+        _describe 'run-id' run_ids
+      elif (( CURRENT == 4 )); then
+        compadd -- push
+      fi
+      ;;
     logs)
       if [[ "${words[CURRENT-1]}" == "--step" ]]; then
         _describe 'step-number' '(4 8)'
@@ -390,7 +601,7 @@ func bashCompletion() string {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  commands="run resume runs status logs steps completion"
+  commands="run resume runs status logs steps edit completion"
   steps="` + strings.Join(steps, " ") + `"
   run_ids=$(ls .forge/runs/*.yaml 2>/dev/null | xargs -I{} basename {} .yaml)
 
@@ -415,6 +626,13 @@ func bashCompletion() string {
     status)
       if [[ ${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
+      fi
+      ;;
+    edit)
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${run_ids}" -- "${cur}") )
+      elif [[ ${COMP_CWORD} -eq 3 ]]; then
+        COMPREPLY=( $(compgen -W "push" -- "${cur}") )
       fi
       ;;
     logs)

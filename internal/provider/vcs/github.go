@@ -148,14 +148,27 @@ func (g *GitHub) HasChanges(ctx context.Context, dir string) (bool, error) {
 }
 
 func (g *GitHub) AmendAndForcePush(ctx context.Context, dir, branch string) error {
+	return g.amendAndForcePush(ctx, dir, branch, "--no-edit", "")
+}
+
+func (g *GitHub) AmendAndForcePushMsg(ctx context.Context, dir, branch, message string) error {
+	return g.amendAndForcePush(ctx, dir, branch, "-m", message)
+}
+
+func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, msgValue string) error {
 	g.Logger.Info("amending and force pushing", "branch", branch)
+
+	commitArgs := []string{"git", "commit", "--amend", msgFlag}
+	if msgValue != "" {
+		commitArgs = append(commitArgs, msgValue)
+	}
 
 	steps := []struct {
 		name string
 		args []string
 	}{
 		{"git add", []string{"git", "add", "."}},
-		{"git commit amend", []string{"git", "commit", "--amend", "--no-edit"}},
+		{"git commit amend", commitArgs},
 		{"git push force", []string{"git", "push", "--force-with-lease", "origin", branch}},
 	}
 

@@ -29,6 +29,7 @@ type VCS interface {
 	GetPRComments(ctx context.Context, prNumber int) ([]Comment, error)
 	PostPRComment(ctx context.Context, prNumber int, body string) error
 	AmendAndForcePush(ctx context.Context, dir, branch string) error
+	AmendAndForcePushMsg(ctx context.Context, dir, branch, message string) error
 	HasChanges(ctx context.Context, dir string) (bool, error)
 }
 
