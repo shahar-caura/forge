@@ -73,6 +73,7 @@ type RunState struct {
 	CRFeedback   string `yaml:"cr_feedback,omitempty"`
 	CRFixSummary string `yaml:"cr_fix_summary,omitempty"`
 	PlanTitle    string `yaml:"plan_title,omitempty"`
+	SourceIssue  int    `yaml:"source_issue,omitempty"`
 
 	Steps []StepState `yaml:"steps"`
 }

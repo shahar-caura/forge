@@ -170,6 +170,43 @@ func TestPostPRComment_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "gh pr comment")
 }
 
+// --- GetIssue tests ---
+
+func TestGetIssue_Success(t *testing.T) {
+	issueJSON, err := json.Marshal(map[string]interface{}{
+		"number": 43,
+		"title":  "Add dark mode",
+		"body":   "Implement dark mode for the app.",
+		"url":    "https://github.com/owner/repo/issues/43",
+	})
+	require.NoError(t, err)
+
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: string(issueJSON), exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	issue, err := g.GetIssue(context.Background(), 43)
+	require.NoError(t, err)
+	assert.Equal(t, 43, issue.Number)
+	assert.Equal(t, "Add dark mode", issue.Title)
+	assert.Equal(t, "Implement dark mode for the app.", issue.Body)
+	assert.Equal(t, "https://github.com/owner/repo/issues/43", issue.URL)
+}
+
+func TestGetIssue_Error(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "not found", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	_, err := g.GetIssue(context.Background(), 999)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh issue view")
+}
+
 // --- AmendAndForcePush tests ---
 
 func TestAmendAndForcePush_Success(t *testing.T) {

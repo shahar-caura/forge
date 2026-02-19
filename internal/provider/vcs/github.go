@@ -166,6 +166,28 @@ func (g *GitHub) AmendAndForcePushMsg(ctx context.Context, dir, branch, message 
 	return g.amendAndForcePush(ctx, dir, branch, "-m", message)
 }
 
+func (g *GitHub) GetIssue(ctx context.Context, number int) (*provider.GitHubIssue, error) {
+	g.Logger.Info("fetching issue", "number", number)
+
+	cmd := g.commandContext(ctx, "gh", "issue", "view",
+		strconv.Itoa(number),
+		"--repo", g.Repo,
+		"--json", "number,title,body,url",
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh issue view: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	var issue provider.GitHubIssue
+	if err := json.Unmarshal(out, &issue); err != nil {
+		return nil, fmt.Errorf("parsing issue JSON: %w", err)
+	}
+
+	return &issue, nil
+}
+
 func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, msgValue string) error {
 	g.Logger.Info("amending and force pushing", "branch", branch)
 

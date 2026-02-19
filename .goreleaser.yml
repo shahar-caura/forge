@@ -1,0 +1,51 @@
+version: 2
+
+builds:
+  - main: ./cmd/forge
+    binary: forge
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: shahar-caura
+    name: forge
+
+brews:
+  - repository:
+      owner: shahar-caura
+      name: homebrew-tap
+    homepage: https://github.com/shahar-caura/forge
+    description: Execute a development plan end-to-end
+    license: MIT
+    install: |
+      bin.install "forge"

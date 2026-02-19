@@ -8,6 +8,14 @@ type PR struct {
 	Number int
 }
 
+// GitHubIssue represents a GitHub issue fetched by the VCS provider.
+type GitHubIssue struct {
+	Number int
+	Title  string
+	Body   string
+	URL    string
+}
+
 // Issue represents a tracker issue (Phase 2).
 type Issue struct {
 	Key   string
@@ -32,6 +40,7 @@ type VCS interface {
 	AmendAndForcePush(ctx context.Context, dir, branch string) error
 	AmendAndForcePushMsg(ctx context.Context, dir, branch, message string) error
 	HasChanges(ctx context.Context, dir string) (bool, error)
+	GetIssue(ctx context.Context, number int) (*GitHubIssue, error)
 }
 
 // Agent runs an AI coding agent with a prompt in a working directory.

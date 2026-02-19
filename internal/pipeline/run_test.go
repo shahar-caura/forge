@@ -117,6 +117,10 @@ func (m *mockVCS) HasChanges(_ context.Context, _ string) (bool, error) {
 	return !m.noChanges, nil
 }
 
+func (m *mockVCS) GetIssue(_ context.Context, _ int) (*provider.GitHubIssue, error) {
+	return nil, nil
+}
+
 type mockTracker struct {
 	issue *provider.Issue
 	err   error
