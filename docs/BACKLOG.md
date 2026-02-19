@@ -6,7 +6,10 @@ Everything not in V1. Roughly priority-ordered.
 
 ## V1.1 — Developer Setup
 
-- [x] **direnv for env vars** — `.envrc` with `dotenv` directive loads `.env` automatically
+- [x] **forge push** — ship current branch as PR without a plan file
+- [x] **Cobra CLI** — replaced hand-rolled dispatch + shell completions
+- [x] **`.forge.env` loading** — two-tier env files (`~/.config/forge/env` + `.forge.env`) loaded before config expansion
+- [ ] **direnv for env vars** — `.envrc` with `dotenv` directive loads `.env` automatically (optional alternative)
 
 ---
 
@@ -196,7 +199,7 @@ When a user runs `forge edit <run-id>` and then manually rebases (`git rebase ma
 | Jira client | **Build** (net/http) | 2 endpoints. SDK is heavier than the code. |
 | Slack notify | **Build** (net/http) | 1 webhook POST. |
 | YAML config | **Reuse `gopkg.in/yaml.v3`** | Standard Go YAML lib. |
-| CLI framework | **Reuse `cobra`** or just `flag` | V1 is one command, `flag` is fine. Cobra if we add subcommands. |
+| CLI framework | **Reuse `cobra`** | Confirmed, V1 uses cobra for subcommands + shell completions. |
 | Env var expansion | **Build** (~20 lines) | `os.ExpandEnv` + validation. |
 | Template engine | **Reuse `text/template`** | For worktree cmd, PR body, etc. |
 | Process manager | **Build** (`os/exec`) | Just spawn + wait. No need for a framework. |

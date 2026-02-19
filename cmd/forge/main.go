@@ -862,20 +862,68 @@ func cmdInit() error {
 
 	fmt.Printf("\nWrote %s\n", configPath)
 
-	// Warn about secrets.
-	var envVars []string
+	// Generate .forge.env files for secrets management.
+	if err := generateEnvFiles(data); err != nil {
+		fmt.Fprintf(os.Stderr, "\nWarning: could not generate env files: %v\n", err)
+	}
+
+	return nil
+}
+
+// generateEnvFiles creates .forge.env (project) and ~/.config/forge/env (global)
+// with placeholder values for secrets referenced in forge.yaml.
+func generateEnvFiles(data initData) error {
+	// Collect project-local and global env vars.
+	var projectLines, globalLines []string
+
 	if data.Tracker {
-		envVars = append(envVars, "JIRA_API_TOKEN")
+		projectLines = append(projectLines,
+			"# Jira connection",
+			fmt.Sprintf("JIRA_URL=%s", data.TrackerBaseURL),
+			fmt.Sprintf("JIRA_EMAIL=%s", data.TrackerEmail),
+		)
+		globalLines = append(globalLines, "JIRA_API_TOKEN=")
 	}
 	if data.Notifier {
-		envVars = append(envVars, "SLACK_WEBHOOK_URL")
+		globalLines = append(globalLines, "SLACK_WEBHOOK_URL=")
 	}
-	if len(envVars) > 0 {
-		fmt.Fprintf(os.Stderr, "\nWarning: forge.yaml references these environment variables:\n")
-		for _, v := range envVars {
-			fmt.Fprintf(os.Stderr, "  - %s\n", v)
+
+	// Write .forge.env (project-local) if there's anything project-specific.
+	if len(projectLines) > 0 {
+		content := "# Forge project-local environment\n# This file is loaded automatically by forge. Do not commit.\n\n"
+		content += strings.Join(projectLines, "\n") + "\n"
+		if err := os.WriteFile(".forge.env", []byte(content), 0o600); err != nil {
+			return fmt.Errorf("writing .forge.env: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "Set them in your shell before running forge.\n")
+		fmt.Println("Wrote .forge.env")
+	}
+
+	// Create or skip ~/.config/forge/env (global secrets).
+	if len(globalLines) > 0 {
+		globalPath := config.GlobalEnvPath()
+		if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+				return fmt.Errorf("creating %s: %w", filepath.Dir(globalPath), err)
+			}
+			content := "# Forge global secrets — shared across all projects\n\n"
+			content += strings.Join(globalLines, "\n") + "\n"
+			if err := os.WriteFile(globalPath, []byte(content), 0o600); err != nil {
+				return fmt.Errorf("writing %s: %w", globalPath, err)
+			}
+			fmt.Printf("Wrote %s\n", globalPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "\nNote: %s already exists. Ensure these vars are set:\n", globalPath)
+			for _, line := range globalLines {
+				if k, _, ok := strings.Cut(line, "="); ok {
+					fmt.Fprintf(os.Stderr, "  - %s\n", k)
+				}
+			}
+		}
+	}
+
+	// Hint about .gitignore.
+	if len(projectLines) > 0 {
+		fmt.Fprintf(os.Stderr, "\nTip: add .forge.env to .gitignore to avoid committing secrets.\n")
 	}
 
 	return nil

@@ -9,6 +9,7 @@ dist/
 # Config with secrets (use forge.yaml.example as template)
 forge.yaml
 .env
+.forge.env
 
 # Test output
 coverage.out

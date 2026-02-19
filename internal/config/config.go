@@ -96,7 +96,10 @@ const (
 )
 
 // Load reads, expands env vars, parses, and validates a forge config file.
+// Environment variables are loaded from .forge.env files before expansion.
 func Load(path string) (*Config, error) {
+	LoadEnvFiles()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
