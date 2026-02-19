@@ -163,6 +163,27 @@ func TestCreateIssue_NoBoardID_SkipsMove(t *testing.T) {
 	assert.Equal(t, int32(1), reqCount.Load(), "expected exactly 1 HTTP request (issue create only)")
 }
 
+func TestCreateIssue_KanbanBoard_SkipsSprint(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-55"})
+	})
+	mux.HandleFunc("/rest/agile/1.0/board/42/sprint", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"errorMessages":["The board does not support sprints"]}`))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	j := New(srv.URL, "PROJ", "user@example.com", "token", "42")
+	issue, err := j.CreateIssue(context.Background(), "Kanban Issue", "body")
+
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-55", issue.Key)
+}
+
 func TestCreateIssue_SprintMoveFails_ReturnsError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {

@@ -197,6 +197,12 @@ func (j *Jira) getActiveSprint(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("reading response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusBadRequest {
+		// Kanban boards don't support sprints — treat as no active sprint.
+		slog.Warn("jira: board does not support sprints, skipping", "board_id", j.boardID)
+		return 0, nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, body)
 	}
