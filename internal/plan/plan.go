@@ -31,9 +31,7 @@ func Parse(content string) (*Plan, error) {
 	frontmatter := rest[:idx]
 	// Skip "\n---" (4 chars) then optional newline.
 	after := rest[idx+4:]
-	if strings.HasPrefix(after, "\n") {
-		after = after[1:]
-	}
+	after = strings.TrimPrefix(after, "\n")
 
 	var p Plan
 	if err := yaml.Unmarshal([]byte(frontmatter), &p); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/plan"
 	"github.com/shahar-caura/forge/internal/provider"
-	"github.com/shahar-caura/forge/internal/provider/agent"
 	"github.com/shahar-caura/forge/internal/state"
 )
 
@@ -183,7 +183,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		logFile, cleanup := openAgentLog(rs.ID, 4, providers.Agent, logger)
 		defer cleanup()
 
-		agentPrompt := "Implement the following plan. Make all necessary file changes.\n\n" + planBody
+		agentPrompt := buildAgentPrompt(planBody) + providers.Agent.PromptSuffix()
 		output, err := providers.Agent.Run(ctx, worktreePath, agentPrompt)
 		if logFile == nil {
 			saveAgentLog(rs.ID, 4, output)
@@ -395,6 +395,27 @@ func runStep(rs *state.RunState, idx int, logger *slog.Logger, fn func() error) 
 	return nil
 }
 
+// buildAgentPrompt constructs the agent prompt with behavioral instructions prepended to the plan.
+// The agent already reads CLAUDE.md from the worktree, so we focus on execution behavior:
+// run tests, verify compilation, and keep changes focused.
+func buildAgentPrompt(planBody string) string {
+	return `You are implementing a task in an existing codebase.
+
+Rules:
+1. Read the project's CLAUDE.md if it exists and follow its conventions.
+2. Only modify files necessary to implement the plan below.
+3. After making changes, verify your work:
+   - Run the build (check for a Makefile, package.json, or equivalent).
+   - Run the test suite and fix any failures you introduced.
+   - Run linters/formatters if configured (e.g. "golangci-lint run ./..." for Go projects).
+   - Fix ALL lint errors before finishing. The PR will fail CI if linters are not clean.
+4. Do not add unrelated improvements, refactoring, or documentation changes.
+
+Plan:
+
+` + planBody
+}
+
 // agentResultText extracts the "result" field from `claude -p --output-format json` output.
 // Falls back to the raw string if parsing fails or the field is missing.
 func agentResultText(output string) string {
@@ -439,10 +460,16 @@ func AgentLogPath(runID string, step int) string {
 	return filepath.Join(".forge/runs", fmt.Sprintf("%s-agent-step%d.log", runID, step))
 }
 
+// logWriterAgent is implemented by agent providers that support streaming output.
+type logWriterAgent interface {
+	SetLogWriter(w io.Writer)
+	ClearLogWriter()
+}
+
 // openAgentLog opens a streaming log file and wires it to the agent's LogWriter.
 // Returns the opened file (nil if agent doesn't support streaming) and a cleanup func.
 func openAgentLog(runID string, step int, a provider.Agent, logger *slog.Logger) (*os.File, func()) {
-	ca, ok := a.(*agent.Claude)
+	lw, ok := a.(logWriterAgent)
 	if !ok {
 		return nil, func() {}
 	}
@@ -454,10 +481,10 @@ func openAgentLog(runID string, step int, a provider.Agent, logger *slog.Logger)
 		return nil, func() {}
 	}
 
-	ca.LogWriter = f
+	lw.SetLogWriter(f)
 	return f, func() {
-		ca.LogWriter = nil
-		f.Close()
+		lw.ClearLogWriter()
+		_ = f.Close()
 	}
 }
 

@@ -1,0 +1,1 @@
+is there an existing tool for creating documents with enfourced structure, for our needs? spec-kit perhaps?

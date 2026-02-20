@@ -27,7 +27,7 @@ func TestCreateIssue_HappyPath(t *testing.T) {
 		assert.Equal(t, "doc", body.Fields.Description.Type)
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-42"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-42"})
 	}))
 	defer srv.Close()
 
@@ -42,7 +42,7 @@ func TestCreateIssue_HappyPath(t *testing.T) {
 func TestCreateIssue_AuthFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"message":"unauthorized"}`))
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
 	}))
 	defer srv.Close()
 
@@ -56,7 +56,7 @@ func TestCreateIssue_AuthFailure(t *testing.T) {
 func TestCreateIssue_BadResponseBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`not json`))
+		_, _ = w.Write([]byte(`not json`))
 	}))
 	defer srv.Close()
 
@@ -70,7 +70,7 @@ func TestCreateIssue_BadResponseBody(t *testing.T) {
 func TestCreateIssue_ContextCancellation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-1"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-1"})
 	}))
 	defer srv.Close()
 
@@ -87,7 +87,7 @@ func TestCreateIssue_ContextCancellation(t *testing.T) {
 func TestCreateIssue_MissingKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: ""})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: ""})
 	}))
 	defer srv.Close()
 
@@ -102,11 +102,11 @@ func TestCreateIssue_MovesToActiveSprint(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-99"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-99"})
 	})
 	mux.HandleFunc("/rest/agile/1.0/board/42/sprint", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "active", r.URL.Query().Get("state"))
-		json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{{ID: 123}}})
+		_ = json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{{ID: 123}}})
 	})
 	mux.HandleFunc("/rest/agile/1.0/sprint/123/issue", func(w http.ResponseWriter, r *http.Request) {
 		var body moveToSprintRequest
@@ -129,10 +129,10 @@ func TestCreateIssue_NoActiveSprint_SkipsMove(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-50"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-50"})
 	})
 	mux.HandleFunc("/rest/agile/1.0/board/42/sprint", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{}})
+		_ = json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{}})
 	})
 
 	srv := httptest.NewServer(mux)
@@ -151,7 +151,7 @@ func TestCreateIssue_NoBoardID_SkipsMove(t *testing.T) {
 		reqCount.Add(1)
 		assert.Equal(t, "/rest/api/3/issue", r.URL.Path, "only issue create endpoint should be called")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-10"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-10"})
 	}))
 	defer srv.Close()
 
@@ -167,11 +167,11 @@ func TestCreateIssue_KanbanBoard_SkipsSprint(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-55"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-55"})
 	})
 	mux.HandleFunc("/rest/agile/1.0/board/42/sprint", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"errorMessages":["The board does not support sprints"]}`))
+		_, _ = w.Write([]byte(`{"errorMessages":["The board does not support sprints"]}`))
 	})
 
 	srv := httptest.NewServer(mux)
@@ -188,14 +188,14 @@ func TestCreateIssue_SprintMoveFails_ReturnsError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-77"})
+		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-77"})
 	})
 	mux.HandleFunc("/rest/agile/1.0/board/42/sprint", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{{ID: 456}}})
+		_ = json.NewEncoder(w).Encode(sprintResponse{Values: []sprint{{ID: 456}}})
 	})
 	mux.HandleFunc("/rest/agile/1.0/sprint/456/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"errorMessages":["sprint is closed"]}`))
+		_, _ = w.Write([]byte(`{"errorMessages":["sprint is closed"]}`))
 	})
 
 	srv := httptest.NewServer(mux)

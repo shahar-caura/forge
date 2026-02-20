@@ -35,6 +35,7 @@ forge/
 │   ├── APPROACH.md                # Design philosophy and constraints
 │   ├── BACKLOG.md                 # V2+ roadmap
 │   ├── STRUCTURE.md               # This file
+│   ├── ISSUE_GOLD_STANDARD.md     # Issue template, rationale, and future ideas
 │   └── research/                  # DX tooling proposals (issue-ready docs)
 │       ├── 00-overview.md         # Index, dependency graph, execution order
 │       ├── 01-ci-pipeline.md      # GitHub Actions CI

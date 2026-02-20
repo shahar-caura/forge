@@ -21,7 +21,7 @@ func TestNotify_HappyPath(t *testing.T) {
 		assert.Equal(t, "PR ready for review: https://github.com/owner/repo/pull/1", payload.Text)
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
@@ -34,7 +34,7 @@ func TestNotify_HappyPath(t *testing.T) {
 func TestNotify_WebhookFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer srv.Close()
 
@@ -56,7 +56,7 @@ func TestNotify_BadURL(t *testing.T) {
 func TestNotify_ContextCancellation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
@@ -73,7 +73,7 @@ func TestNotify_ContextCancellation(t *testing.T) {
 func TestNotify_UnexpectedBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("not ok"))
+		_, _ = w.Write([]byte("not ok"))
 	}))
 	defer srv.Close()
 

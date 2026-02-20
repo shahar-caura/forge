@@ -48,6 +48,9 @@ type VCS interface {
 // Run returns the raw agent output (for logging/debugging) and any error.
 type Agent interface {
 	Run(ctx context.Context, dir, prompt string) (output string, err error)
+	// PromptSuffix returns agent-specific instructions appended to the prompt.
+	// Returns empty string if the agent needs no special instructions.
+	PromptSuffix() string
 }
 
 // Worktree manages isolated working directories for parallel development.

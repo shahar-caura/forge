@@ -30,7 +30,7 @@ func newResumeCmd(logger *slog.Logger) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&fromStep, "from", "", "step name to resume from")
-	cmd.RegisterFlagCompletionFunc("from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeStepNames(toComplete)
 	})
 

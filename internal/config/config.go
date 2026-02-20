@@ -79,8 +79,9 @@ type NotifierConfig struct {
 }
 
 type AgentConfig struct {
-	Provider string   `yaml:"provider"`
-	Timeout  Duration `yaml:"timeout"`
+	Provider     string   `yaml:"provider"`
+	Timeout      Duration `yaml:"timeout"`
+	AllowedTools string   `yaml:"allowed_tools"`
 }
 
 type WorktreeConfig struct {
@@ -120,6 +121,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Agent.Timeout.Duration == 0 {
 		cfg.Agent.Timeout.Duration = defaultTimeout
+	}
+	if cfg.Agent.AllowedTools == "" && cfg.Agent.Provider == "ralph" {
+		cfg.Agent.AllowedTools = "Write,Read,Edit,Bash(git add *),Bash(git commit *),Bash(git diff *),Bash(git log *),Bash(git status),Bash(git status *),Bash(git push *),Bash(git pull *),Bash(git fetch *),Bash(git checkout *),Bash(git branch *),Bash(git stash *),Bash(git merge *),Bash(git tag *),Bash(go build *),Bash(go test *),Bash(go vet *),Bash(go fmt *),Bash(go mod *),Bash(go run *),Bash(make),Bash(make *)"
 	}
 	if cfg.State.Retention.Duration == 0 {
 		cfg.State.Retention.Duration = defaultRetention

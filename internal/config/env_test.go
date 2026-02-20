@@ -68,13 +68,13 @@ func TestLoadEnvFiles_ProjectOverridesGlobal(t *testing.T) {
 	require.NoError(t, os.WriteFile(projectFile, []byte("PROJECT_ONLY=from_project\nSHARED=from_project\n"), 0o644))
 
 	// Clear any pre-existing values.
-	os.Unsetenv("GLOBAL_ONLY")
-	os.Unsetenv("PROJECT_ONLY")
-	os.Unsetenv("SHARED")
+	_ = os.Unsetenv("GLOBAL_ONLY")
+	_ = os.Unsetenv("PROJECT_ONLY")
+	_ = os.Unsetenv("SHARED")
 	t.Cleanup(func() {
-		os.Unsetenv("GLOBAL_ONLY")
-		os.Unsetenv("PROJECT_ONLY")
-		os.Unsetenv("SHARED")
+		_ = os.Unsetenv("GLOBAL_ONLY")
+		_ = os.Unsetenv("PROJECT_ONLY")
+		_ = os.Unsetenv("SHARED")
 	})
 
 	// Merge: global first, project overwrites.
@@ -83,7 +83,7 @@ func TestLoadEnvFiles_ProjectOverridesGlobal(t *testing.T) {
 	mergeEnvFile(merged, projectFile)
 
 	for k, v := range merged {
-		os.Setenv(k, v)
+		_ = os.Setenv(k, v)
 	}
 
 	assert.Equal(t, "from_global", os.Getenv("GLOBAL_ONLY"))
@@ -108,7 +108,7 @@ func TestLoadEnvFiles_ActualEnvWins(t *testing.T) {
 
 	for k, v := range merged {
 		if !origKeys[k] {
-			os.Setenv(k, v)
+			_ = os.Setenv(k, v)
 		}
 	}
 

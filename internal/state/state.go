@@ -131,7 +131,7 @@ func (s *RunState) Save() error {
 	}
 
 	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp) // best-effort cleanup
+		_ = os.Remove(tmp) // best-effort cleanup
 		return fmt.Errorf("renaming state file: %w", err)
 	}
 

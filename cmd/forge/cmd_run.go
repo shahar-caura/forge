@@ -63,7 +63,7 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().BoolVar(&allIssues, "all-issues", false, "Run all open issues in dependency order")
 	cmd.Flags().StringVar(&label, "label", "", "Filter issues by label (used with --all-issues)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print execution plan without running (used with --all-issues)")
-	cmd.RegisterFlagCompletionFunc("issue", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("issue", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeIssueNumbers(toComplete)
 	})
 	return cmd

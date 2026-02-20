@@ -32,6 +32,14 @@ func New(timeout time.Duration, logger *slog.Logger) *Claude {
 	}
 }
 
+// SetLogWriter sets the writer that receives a real-time copy of agent output.
+func (c *Claude) SetLogWriter(w io.Writer) { c.LogWriter = w }
+
+// ClearLogWriter removes the streaming log writer.
+func (c *Claude) ClearLogWriter() { c.LogWriter = nil }
+
+func (c *Claude) PromptSuffix() string { return "" }
+
 func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
@@ -76,8 +84,8 @@ func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); io.Copy(w, stdout) }()
-	go func() { defer wg.Done(); io.Copy(w, stderr) }()
+	go func() { defer wg.Done(); _, _ = io.Copy(w, stdout) }()
+	go func() { defer wg.Done(); _, _ = io.Copy(w, stderr) }()
 	wg.Wait()
 
 	err = cmd.Wait()

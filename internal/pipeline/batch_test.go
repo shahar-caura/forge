@@ -15,11 +15,11 @@ import (
 // batchMockVCS extends mockVCS with ListIssues support.
 type batchMockVCS struct {
 	mockVCS
-	issues       []provider.GitHubIssue
-	listErr      error
-	listCalled   bool
-	listState    string
-	listLabel    string
+	issues     []provider.GitHubIssue
+	listErr    error
+	listCalled bool
+	listState  string
+	listLabel  string
 }
 
 func (m *batchMockVCS) ListIssues(_ context.Context, state string, label string) ([]provider.GitHubIssue, error) {
@@ -161,10 +161,15 @@ func TestRunBatch_DryRun_ExternalDepsIgnored(t *testing.T) {
 
 // Verify runSingleIssue creates temp plan and state files.
 func TestRunSingleIssue_CreatesPlanFile(t *testing.T) {
-	origDir, _ := os.Getwd()
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
 	tmpDir := t.TempDir()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restoring working dir: %v", err)
+		}
+	}()
 
 	wt := &mockWorktree{createPath: t.TempDir()}
 	ag := &mockAgent{}
@@ -175,7 +180,7 @@ func TestRunSingleIssue_CreatesPlanFile(t *testing.T) {
 	cfg := testConfig()
 	providers := Providers{VCS: vc, Agent: ag, Worktree: wt}
 
-	err := runSingleIssue(context.Background(), cfg, providers, 42, "Add Auth", "Implement auth system.", batchLogger())
+	err = runSingleIssue(context.Background(), cfg, providers, 42, "Add Auth", "Implement auth system.", batchLogger())
 
 	require.NoError(t, err)
 	assert.True(t, ag.called)

@@ -48,7 +48,7 @@ func cmdLogs(runID string, follow bool, step int) error {
 	if err != nil {
 		return fmt.Errorf("opening log: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = io.Copy(os.Stdout, f)
 	return err

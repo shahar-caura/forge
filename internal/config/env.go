@@ -29,7 +29,7 @@ func LoadEnvFiles() {
 	// Set only keys that weren't in the original environment.
 	for k, v := range merged {
 		if !origKeys[k] {
-			os.Setenv(k, v)
+			_ = os.Setenv(k, v)
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,8 @@ type mockAgent struct {
 	output    string
 	outputs   []string // per-call outputs; takes precedence over output when set
 }
+
+func (m *mockAgent) PromptSuffix() string { return "" }
 
 func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
 	m.called = true
@@ -183,14 +186,6 @@ func writePlan(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "auth.md")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	return path
-}
-
-func writePlanNamed(t *testing.T, name, content string) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	return path
 }
@@ -950,6 +945,22 @@ func TestRun_CRLoop_IntelligentReplyComment(t *testing.T) {
 	assert.True(t, vc.postCommentCalled)
 	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", vc.postCommentBody)
 	assert.Equal(t, "**Fixed:** Renamed `foo` to `bar` per review.", rs.CRFixSummary)
+}
+
+// --- Agent prompt construction tests ---
+
+func TestBuildAgentPrompt(t *testing.T) {
+	prompt := buildAgentPrompt("Add login endpoint to /auth")
+
+	assert.Contains(t, prompt, "Add login endpoint to /auth", "plan body should be included")
+	assert.Contains(t, prompt, "CLAUDE.md", "should instruct agent to read CLAUDE.md")
+	assert.Contains(t, prompt, "test suite", "should instruct agent to run tests")
+	assert.Contains(t, prompt, "Plan:", "should have Plan header before body")
+
+	// Plan body should come after the instructions, not before.
+	instrIdx := strings.Index(prompt, "CLAUDE.md")
+	planIdx := strings.Index(prompt, "Add login endpoint")
+	assert.Greater(t, planIdx, instrIdx, "plan body should follow instructions")
 }
 
 // --- Source issue auto-close tests ---

@@ -12,6 +12,7 @@ import (
 
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/pipeline"
+	"github.com/shahar-caura/forge/internal/provider"
 	"github.com/shahar-caura/forge/internal/provider/agent"
 	"github.com/shahar-caura/forge/internal/provider/notifier"
 	"github.com/shahar-caura/forge/internal/provider/tracker"
@@ -93,7 +94,7 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 			repoRoot,
 			logger,
 		),
-		Agent: agent.New(cfg.Agent.Timeout.Duration, logger),
+		Agent: newAgent(cfg, logger),
 		VCS:   vcs.New(cfg.VCS.Repo, logger),
 	}
 
@@ -106,6 +107,15 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 	}
 
 	return p, nil
+}
+
+func newAgent(cfg *config.Config, logger *slog.Logger) provider.Agent {
+	switch cfg.Agent.Provider {
+	case "ralph":
+		return agent.NewRalph(cfg.Agent.Timeout.Duration, cfg.Agent.AllowedTools, logger)
+	default:
+		return agent.New(cfg.Agent.Timeout.Duration, logger)
+	}
 }
 
 // --- Git helpers ---
