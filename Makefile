@@ -1,4 +1,4 @@
-.PHONY: build install test test-v lint clean validate fmt vet run release-dry
+.PHONY: build install test test-v lint clean validate fmt vet run release-dry node-server-run node-server-test
 
 BINARY := forge
 BUILD_DIR := bin
@@ -42,6 +42,18 @@ validate:
 
 release-dry:
 	goreleaser release --snapshot --clean
+
+node-server-run:
+	cd hello-world-server && node server.js
+
+node-server-test:
+	@echo "Starting node server for testing..."
+	cd hello-world-server && node server.js & \
+	SERVER_PID=$$!; \
+	echo "Server PID: $$SERVER_PID"; \
+	cd hello-world-server && node test.js || (kill $$SERVER_PID && exit 1); \
+	kill $$SERVER_PID; \
+	echo "Test complete and server stopped."
 
 # Catch-all so `make run <path>` doesn't error on the path argument.
 %:
