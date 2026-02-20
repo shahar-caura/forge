@@ -215,6 +215,30 @@ func (g *GitHub) ListIssues(ctx context.Context, state string, label string) ([]
 	return issues, nil
 }
 
+func (g *GitHub) FetchAndRebase(ctx context.Context, dir, baseBranch string) error {
+	g.Logger.Info("rebasing onto latest base branch", "base", baseBranch)
+
+	steps := []struct {
+		name string
+		args []string
+	}{
+		{"git fetch base", []string{"git", "fetch", "origin", baseBranch}},
+		{"git rebase", []string{"git", "rebase", "origin/" + baseBranch}},
+	}
+
+	for i, step := range steps {
+		cmd := g.commandContext(ctx, step.args[0], step.args[1:]...)
+		cmd.Dir = dir
+
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("step %d (%s): %w: %s", i+1, step.name, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	return nil
+}
+
 func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, msgValue string) error {
 	g.Logger.Info("amending and force pushing", "branch", branch)
 

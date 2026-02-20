@@ -40,6 +40,7 @@ type VCS interface {
 	AmendAndForcePush(ctx context.Context, dir, branch string) error
 	AmendAndForcePushMsg(ctx context.Context, dir, branch, message string) error
 	HasChanges(ctx context.Context, dir string) (bool, error)
+	FetchAndRebase(ctx context.Context, dir, baseBranch string) error
 	GetIssue(ctx context.Context, number int) (*GitHubIssue, error)
 	ListIssues(ctx context.Context, state string, label string) ([]GitHubIssue, error)
 }

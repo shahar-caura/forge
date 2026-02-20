@@ -1,0 +1,34 @@
+id: 20260219-120000-push-test
+plan_path: ""
+mode: push
+status: completed
+created_at: 2026-02-20T10:15:36.193688+02:00
+updated_at: 2026-02-20T10:15:36.205737+02:00
+branch: forge/my-feature
+worktree_path: /tmp/repo
+pr_url: url
+pr_number: 1
+plan_title: My Feature
+steps:
+    - name: read plan
+      status: completed
+    - name: create issue
+      status: completed
+    - name: generate branch
+      status: completed
+    - name: create worktree
+      status: completed
+    - name: run agent
+      status: completed
+    - name: commit and push
+      status: completed
+    - name: create pr
+      status: completed
+    - name: poll cr
+      status: completed
+    - name: fix cr
+      status: completed
+    - name: push cr fix
+      status: completed
+    - name: notify
+      status: completed

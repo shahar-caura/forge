@@ -1,0 +1,33 @@
+id: 20260217-120000-test
+plan_path: /var/folders/tx/bm28bkzx7vj48wg0z_ls65gw0000gn/T/TestRun_CRLoop_FallbackComment2776345507/001/auth.md
+status: completed
+created_at: 2026-02-20T10:15:36.635226+02:00
+updated_at: 2026-02-20T10:15:36.645188+02:00
+branch: forge/auth
+worktree_path: /tmp/wt
+pr_url: https://github.com/owner/repo/pull/1
+pr_number: 1
+cr_feedback: 'Claude finished reviewing: fix stuff'
+steps:
+    - name: read plan
+      status: completed
+    - name: create issue
+      status: completed
+    - name: generate branch
+      status: completed
+    - name: create worktree
+      status: completed
+    - name: run agent
+      status: completed
+    - name: commit and push
+      status: completed
+    - name: create pr
+      status: completed
+    - name: poll cr
+      status: completed
+    - name: fix cr
+      status: completed
+    - name: push cr fix
+      status: completed
+    - name: notify
+      status: completed

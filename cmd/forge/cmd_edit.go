@@ -143,11 +143,21 @@ func editPush(cfg *config.Config, rs *state.RunState, wtPath, message string, lo
 		return fmt.Errorf("no changes to push in %s", wtPath)
 	}
 
+	// Stage all changes.
+	addCmd := exec.Command("git", "add", ".")
+	addCmd.Dir = wtPath
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Commit based on strategy (push comes after rebase).
 	switch cfg.CR.FixStrategy {
 	case "new-commit":
 		msg := fmt.Sprintf("forge: %s", message)
-		if err := v.CommitAndPush(ctx, wtPath, rs.Branch, msg); err != nil {
-			return fmt.Errorf("commit and push: %w", err)
+		commitCmd := exec.Command("git", "commit", "-m", msg)
+		commitCmd.Dir = wtPath
+		if out, err := commitCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git commit: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 	default: // "amend"
 		// Append -m message to existing commit message before amending.
@@ -158,9 +168,23 @@ func editPush(cfg *config.Config, rs *state.RunState, wtPath, message string, lo
 			return fmt.Errorf("reading commit message: %w", err)
 		}
 		newMsg := strings.TrimSpace(string(existing)) + "\n\n" + message
-		if err := v.AmendAndForcePushMsg(ctx, wtPath, rs.Branch, newMsg); err != nil {
-			return fmt.Errorf("amend and push: %w", err)
+		commitCmd := exec.Command("git", "commit", "--amend", "-m", newMsg)
+		commitCmd.Dir = wtPath
+		if out, err := commitCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git commit --amend: %w: %s", err, strings.TrimSpace(string(out)))
 		}
+	}
+
+	// Fetch and rebase onto latest base branch before pushing.
+	if err := v.FetchAndRebase(ctx, wtPath, cfg.VCS.BaseBranch); err != nil {
+		return fmt.Errorf("rebase onto %s: %w", cfg.VCS.BaseBranch, err)
+	}
+
+	// Force push (rebase may rewrite history).
+	pushCmd := exec.Command("git", "push", "--force-with-lease", "origin", rs.Branch)
+	pushCmd.Dir = wtPath
+	if out, err := pushCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
 	if rs.PRNumber != 0 {
