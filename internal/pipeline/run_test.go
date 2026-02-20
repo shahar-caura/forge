@@ -122,6 +122,10 @@ func (m *mockVCS) HasChanges(_ context.Context, _ string) (bool, error) {
 	return !m.noChanges, nil
 }
 
+func (m *mockVCS) FetchAndRebase(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func (m *mockVCS) GetIssue(_ context.Context, _ int) (*provider.GitHubIssue, error) {
 	return nil, nil
 }

@@ -259,6 +259,32 @@ func TestListIssues_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "gh issue list")
 }
 
+// --- FetchAndRebase tests ---
+
+func TestFetchAndRebase_Success(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.FetchAndRebase(context.Background(), t.TempDir(), "main")
+	require.NoError(t, err)
+	assert.Len(t, ct.calls, 2)
+	assert.Contains(t, ct.calls[0], "git fetch origin main")
+	assert.Contains(t, ct.calls[1], "git rebase origin/main")
+}
+
+func TestFetchAndRebase_FetchFails(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"git": {stdout: "could not resolve host", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	err := g.FetchAndRebase(context.Background(), t.TempDir(), "main")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "git fetch base")
+}
+
 // --- AmendAndForcePush tests ---
 
 func TestAmendAndForcePush_Success(t *testing.T) {
