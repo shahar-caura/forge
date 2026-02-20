@@ -19,7 +19,7 @@ notifier:
   webhook_url: ${SLACK_WEBHOOK_URL}
 
 agent:
-  provider: claude
+  provider: claude          # claude, ralph, codex, gemini
   timeout: 45m              # Max time for agent execution
 
 worktree:

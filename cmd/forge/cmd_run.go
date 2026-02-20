@@ -41,7 +41,7 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 			}
 
 			if allIssues {
-				return cmdRunBatch(logger, label, dryRun)
+				return cmdRunBatch(cmd, logger, label, dryRun)
 			}
 
 			if hasPlan && hasIssue {
@@ -55,7 +55,7 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 			if hasPlan {
 				planPath = args[0]
 			}
-			return cmdRun(logger, planPath, issueNumber)
+			return cmdRun(cmd, logger, planPath, issueNumber)
 		},
 	}
 
@@ -69,11 +69,12 @@ func newRunCmd(logger *slog.Logger) *cobra.Command {
 	return cmd
 }
 
-func cmdRunBatch(logger *slog.Logger, label string, dryRun bool) error {
+func cmdRunBatch(cmd *cobra.Command, logger *slog.Logger, label string, dryRun bool) error {
 	cfg, err := config.Load("forge.yaml")
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	applyOverrides(cmd, cfg)
 
 	providers, err := wireProviders(cfg, logger)
 	if err != nil {
@@ -90,11 +91,12 @@ func cmdRunBatch(logger *slog.Logger, label string, dryRun bool) error {
 	return err
 }
 
-func cmdRun(logger *slog.Logger, planPath string, issueNumber int) error {
+func cmdRun(cmd *cobra.Command, logger *slog.Logger, planPath string, issueNumber int) error {
 	cfg, err := config.Load("forge.yaml")
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	applyOverrides(cmd, cfg)
 
 	// Wire providers early — needed for --issue fetch before run ID generation.
 	providers, err := wireProviders(cfg, logger)

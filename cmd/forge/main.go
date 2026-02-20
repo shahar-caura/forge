@@ -29,6 +29,11 @@ func newRootCmd(logger *slog.Logger) *cobra.Command {
 		SilenceErrors: true,
 	}
 
+	root.PersistentFlags().String("agent", "", "override agent provider (e.g. claude, codex, gemini)")
+	_ = root.RegisterFlagCompletionFunc("agent", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"claude", "codex", "gemini", "ralph"}, cobra.ShellCompDirectiveNoFileComp
+	})
+
 	root.AddCommand(
 		newVersionCmd(),
 		newInitCmd(),

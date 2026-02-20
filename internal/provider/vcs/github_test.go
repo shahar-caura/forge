@@ -77,6 +77,28 @@ func TestCommitAndPush_CommitFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "git add")
 }
 
+func TestCommitAndPush_RetryAfterPreCommitHook(t *testing.T) {
+	// Simulate: git add succeeds, git commit fails once (hook reformats),
+	// then git add + git commit succeed on retry.
+	callCount := 0
+	g := New("owner/repo", testLogger())
+	g.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		callCount++
+		key := name + " " + joinArgs(args)
+		// Fail the first git commit (call #2), succeed everything else.
+		if name == "git" && len(args) > 0 && args[0] == "commit" && callCount == 2 {
+			return exec.CommandContext(ctx, "sh", "-c", "echo 'ruff format modified files' >&2; exit 1")
+		}
+		_ = key
+		return exec.CommandContext(ctx, "true")
+	}
+
+	err := g.CommitAndPush(context.Background(), t.TempDir(), "feat-branch", "add feature")
+	require.NoError(t, err)
+	// add(1) + commit-fail(2) + add-retry(3) + commit-retry(4) + push(5)
+	assert.Equal(t, 5, callCount)
+}
+
 func TestCreatePR_Success(t *testing.T) {
 	ct := &callTracker{results: map[string]stubResult{
 		"gh": {stdout: "https://github.com/owner/repo/pull/42", exitCode: 0},

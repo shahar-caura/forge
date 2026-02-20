@@ -46,6 +46,11 @@ type issueFields struct {
 	Summary     string     `json:"summary"`
 	IssueType   issueType  `json:"issuetype"`
 	Description adfDoc     `json:"description"`
+	Assignee    *assignee  `json:"assignee,omitempty"`
+}
+
+type assignee struct {
+	AccountID string `json:"accountId"`
 }
 
 type projectKey struct {
@@ -77,13 +82,19 @@ type createIssueResponse struct {
 	Key string `json:"key"`
 }
 
-// CreateIssue creates a Jira issue and returns the key and browse URL.
+// CreateIssue creates a Jira issue assigned to the current user and returns the key and browse URL.
 func (j *Jira) CreateIssue(ctx context.Context, title, body string) (*provider.Issue, error) {
+	accountID, err := j.getCurrentUser(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("jira: getting current user: %w", err)
+	}
+
 	reqBody := createIssueRequest{
 		Fields: issueFields{
 			Project:   projectKey{Key: j.project},
 			Summary:   title,
 			IssueType: issueType{Name: "Task"},
+			Assignee:  &assignee{AccountID: accountID},
 			Description: adfDoc{
 				Type:    "doc",
 				Version: 1,
@@ -217,6 +228,48 @@ func (j *Jira) getActiveSprint(ctx context.Context) (int, error) {
 	}
 
 	return result.Values[0].ID, nil
+}
+
+type myselfResponse struct {
+	AccountID string `json:"accountId"`
+}
+
+// getCurrentUser returns the Jira account ID of the authenticated user.
+func (j *Jira) getCurrentUser(ctx context.Context) (string, error) {
+	url := j.baseURL + "/rest/api/3/myself"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(j.email + ":" + j.token))
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("sending request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, body)
+	}
+
+	var result myselfResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parsing response: %w", err)
+	}
+
+	if result.AccountID == "" {
+		return "", fmt.Errorf("response missing accountId")
+	}
+
+	return result.AccountID, nil
 }
 
 // moveToSprint moves an issue into the given sprint.

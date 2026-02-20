@@ -12,10 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testAccountID = "test-account-123"
+
+// registerMyself adds a /rest/api/3/myself handler to the mux.
+func registerMyself(mux *http.ServeMux) {
+	mux.HandleFunc("/rest/api/3/myself", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(myselfResponse{AccountID: testAccountID})
+	})
+}
+
 func TestCreateIssue_HappyPath(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	registerMyself(mux)
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/rest/api/3/issue", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Contains(t, r.Header.Get("Authorization"), "Basic ")
 
@@ -25,10 +35,14 @@ func TestCreateIssue_HappyPath(t *testing.T) {
 		assert.Equal(t, "Test Issue", body.Fields.Summary)
 		assert.Equal(t, "Task", body.Fields.IssueType.Name)
 		assert.Equal(t, "doc", body.Fields.Description.Type)
+		require.NotNil(t, body.Fields.Assignee)
+		assert.Equal(t, testAccountID, body.Fields.Assignee.AccountID)
 
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-42"})
-	}))
+	})
+
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	j := New(srv.URL, "PROJ", "user@example.com", "token", "")
@@ -40,6 +54,7 @@ func TestCreateIssue_HappyPath(t *testing.T) {
 }
 
 func TestCreateIssue_AuthFailure(t *testing.T) {
+	// /myself returns 401 before issue creation is attempted.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
@@ -50,14 +65,18 @@ func TestCreateIssue_AuthFailure(t *testing.T) {
 	_, err := j.CreateIssue(context.Background(), "title", "body")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "jira: unexpected status 401")
+	assert.Contains(t, err.Error(), "jira: getting current user")
 }
 
 func TestCreateIssue_BadResponseBody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	mux := http.NewServeMux()
+	registerMyself(mux)
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`not json`))
-	}))
+	})
+
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	j := New(srv.URL, "PROJ", "user@example.com", "token", "")
@@ -69,8 +88,8 @@ func TestCreateIssue_BadResponseBody(t *testing.T) {
 
 func TestCreateIssue_ContextCancellation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-1"})
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(myselfResponse{AccountID: testAccountID})
 	}))
 	defer srv.Close()
 
@@ -81,14 +100,18 @@ func TestCreateIssue_ContextCancellation(t *testing.T) {
 	_, err := j.CreateIssue(ctx, "title", "body")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "jira: sending request")
+	assert.Contains(t, err.Error(), "sending request")
 }
 
 func TestCreateIssue_MissingKey(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	mux := http.NewServeMux()
+	registerMyself(mux)
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: ""})
-	}))
+	})
+
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	j := New(srv.URL, "PROJ", "user@example.com", "token", "")
@@ -100,6 +123,7 @@ func TestCreateIssue_MissingKey(t *testing.T) {
 
 func TestCreateIssue_MovesToActiveSprint(t *testing.T) {
 	mux := http.NewServeMux()
+	registerMyself(mux)
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-99"})
@@ -127,6 +151,7 @@ func TestCreateIssue_MovesToActiveSprint(t *testing.T) {
 
 func TestCreateIssue_NoActiveSprint_SkipsMove(t *testing.T) {
 	mux := http.NewServeMux()
+	registerMyself(mux)
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-50"})
@@ -147,12 +172,18 @@ func TestCreateIssue_NoActiveSprint_SkipsMove(t *testing.T) {
 
 func TestCreateIssue_NoBoardID_SkipsMove(t *testing.T) {
 	var reqCount atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rest/api/3/myself", func(w http.ResponseWriter, _ *http.Request) {
 		reqCount.Add(1)
-		assert.Equal(t, "/rest/api/3/issue", r.URL.Path, "only issue create endpoint should be called")
+		_ = json.NewEncoder(w).Encode(myselfResponse{AccountID: testAccountID})
+	})
+	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		reqCount.Add(1)
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-10"})
-	}))
+	})
+
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	j := New(srv.URL, "PROJ", "user@example.com", "token", "")
@@ -160,11 +191,12 @@ func TestCreateIssue_NoBoardID_SkipsMove(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "PROJ-10", issue.Key)
-	assert.Equal(t, int32(1), reqCount.Load(), "expected exactly 1 HTTP request (issue create only)")
+	assert.Equal(t, int32(2), reqCount.Load(), "expected exactly 2 HTTP requests (myself + issue create)")
 }
 
 func TestCreateIssue_KanbanBoard_SkipsSprint(t *testing.T) {
 	mux := http.NewServeMux()
+	registerMyself(mux)
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-55"})
@@ -186,6 +218,7 @@ func TestCreateIssue_KanbanBoard_SkipsSprint(t *testing.T) {
 
 func TestCreateIssue_SprintMoveFails_ReturnsError(t *testing.T) {
 	mux := http.NewServeMux()
+	registerMyself(mux)
 	mux.HandleFunc("/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(createIssueResponse{Key: "PROJ-77"})

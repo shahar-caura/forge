@@ -192,6 +192,39 @@ func TestCreate_ReattachesExistingBranch(t *testing.T) {
 	assert.True(t, info.IsDir())
 }
 
+func TestCreate_ReattachResetsToBase(t *testing.T) {
+	repoDir := initBareRepo(t)
+
+	// Create a worktree, commit a file on the branch, then remove the worktree.
+	wtPath := filepath.Join(repoDir, ".worktrees", "stale-branch")
+	run(t, repoDir, "git", "worktree", "add", "-b", "stale-branch", wtPath, "master")
+	require.NoError(t, os.WriteFile(filepath.Join(wtPath, "stale.txt"), []byte("old work"), 0o644))
+	run(t, wtPath, "git", "add", ".")
+	run(t, wtPath, "git", "commit", "-m", "stale commit from previous run")
+	run(t, repoDir, "git", "worktree", "remove", "--force", wtPath)
+
+	g := New(
+		"git worktree add -b {{.Branch}} {{.Path}} {{.BaseBranch}}",
+		"git worktree remove --force {{.Path}}",
+		true,
+		repoDir,
+		testLogger(),
+	)
+
+	// Re-run: Create should reattach and reset to base, discarding the stale commit.
+	path, err := g.Create(context.Background(), "stale-branch", "master")
+	require.NoError(t, err)
+	assert.Equal(t, wtPath, path)
+
+	// The stale file should not exist — branch was reset to master.
+	_, err = os.Stat(filepath.Join(path, "stale.txt"))
+	assert.True(t, os.IsNotExist(err), "stale.txt should not exist after reset to base")
+
+	// Only the original README.md from master should be present.
+	_, err = os.Stat(filepath.Join(path, "README.md"))
+	assert.NoError(t, err, "README.md from base should exist")
+}
+
 func TestCreate_ContextCancelled(t *testing.T) {
 	repoDir := initBareRepo(t)
 

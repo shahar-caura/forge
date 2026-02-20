@@ -967,6 +967,21 @@ func TestBuildAgentPrompt(t *testing.T) {
 	assert.Greater(t, planIdx, instrIdx, "plan body should follow instructions")
 }
 
+func TestBuildFixCRPrompt(t *testing.T) {
+	prompt := buildFixCRPrompt("Please fix the auth bug", "Add login endpoint")
+
+	assert.Contains(t, prompt, "Please fix the auth bug", "feedback should be included")
+	assert.Contains(t, prompt, "Add login endpoint", "plan body should be included")
+	assert.Contains(t, prompt, "fix everything", "should mandate fixing all issues")
+	assert.Contains(t, prompt, "KISS violation", "should list valid decline reasons")
+	assert.Contains(t, prompt, "Convention conflict", "should list valid decline reasons")
+	assert.Contains(t, prompt, "CLAUDE.md", "should reference project conventions")
+	assert.Contains(t, prompt, "CRSUMMARY", "should require structured summary output")
+	assert.Contains(t, prompt, "### Fixed", "should require categorized response")
+	assert.Contains(t, prompt, "### Declined", "should require categorized response")
+	assert.Contains(t, prompt, "test suite", "should instruct agent to run tests")
+}
+
 // --- Source issue auto-close tests ---
 
 func TestRun_SourceIssue_PRBodyContainsCloses(t *testing.T) {

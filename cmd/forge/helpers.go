@@ -78,6 +78,15 @@ func completeIssueNumbers(toComplete string) ([]string, cobra.ShellCompDirective
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
+// --- Config overrides ---
+
+// applyOverrides applies CLI flag overrides to the loaded config.
+func applyOverrides(cmd *cobra.Command, cfg *config.Config) {
+	if v, _ := cmd.Flags().GetString("agent"); v != "" {
+		cfg.Agent.Provider = v
+	}
+}
+
 // --- Provider wiring ---
 
 func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers, error) {
@@ -113,6 +122,10 @@ func newAgent(cfg *config.Config, logger *slog.Logger) provider.Agent {
 	switch cfg.Agent.Provider {
 	case "ralph":
 		return agent.NewRalph(cfg.Agent.Timeout.Duration, cfg.Agent.AllowedTools, logger)
+	case "codex":
+		return agent.NewCodex(cfg.Agent.Timeout.Duration, logger)
+	case "gemini":
+		return agent.NewGemini(cfg.Agent.Timeout.Duration, logger)
 	default:
 		return agent.New(cfg.Agent.Timeout.Duration, logger)
 	}

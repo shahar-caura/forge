@@ -25,7 +25,7 @@ func newResumeCmd(logger *slog.Logger) *cobra.Command {
 			return completeRunIDs(toComplete)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdResume(logger, args[0], fromStep)
+			return cmdResume(cmd, logger, args[0], fromStep)
 		},
 	}
 
@@ -37,7 +37,7 @@ func newResumeCmd(logger *slog.Logger) *cobra.Command {
 	return cmd
 }
 
-func cmdResume(logger *slog.Logger, runID, fromStep string) error {
+func cmdResume(cobraCmd *cobra.Command, logger *slog.Logger, runID, fromStep string) error {
 	rs, err := state.Load(runID)
 	if err != nil {
 		return fmt.Errorf("loading run state: %w", err)
@@ -76,6 +76,7 @@ func cmdResume(logger *slog.Logger, runID, fromStep string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	applyOverrides(cobraCmd, cfg)
 
 	logger.Info("resuming run", "id", runID, "mode", rs.Mode)
 

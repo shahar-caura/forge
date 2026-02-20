@@ -297,8 +297,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		logFile, cleanup := openAgentLog(rs.ID, 8, providers.Agent, logger)
 		defer cleanup()
 
-		feedback := rs.CRFeedback
-		fixPrompt := fmt.Sprintf("The following code review feedback was received:\n\n%s\n\nOriginal plan:\n\n%s\n\nPlease address the feedback.\n\nAfter making all changes, output a markdown summary of what you fixed and what (if anything) was left unresolved. Wrap this summary between ---CRSUMMARY--- markers, like:\n\n---CRSUMMARY---\nYour summary here.\n---CRSUMMARY---", feedback, planBody)
+		fixPrompt := buildFixCRPrompt(rs.CRFeedback, planBody)
 		output, err := providers.Agent.Run(ctx, worktreePath, fixPrompt)
 		if logFile == nil {
 			saveAgentLog(rs.ID, 8, output)
@@ -396,24 +395,87 @@ func runStep(rs *state.RunState, idx int, logger *slog.Logger, fn func() error) 
 }
 
 // buildAgentPrompt constructs the agent prompt with behavioral instructions prepended to the plan.
-// The agent already reads CLAUDE.md from the worktree, so we focus on execution behavior:
-// run tests, verify compilation, and keep changes focused.
+// CLAUDE.md and .claude/*.md project docs are already loaded into the system prompt
+// (CLAUDE.md by claude -p auto-loading, .claude/*.md via --append-system-prompt).
+// This prompt only adds forge-specific execution behavior that CLAUDE.md doesn't cover.
 func buildAgentPrompt(planBody string) string {
 	return `You are implementing a task in an existing codebase.
 
 Rules:
-1. Read the project's CLAUDE.md if it exists and follow its conventions.
+1. Follow the project's CLAUDE.md conventions — they take priority over these rules.
 2. Only modify files necessary to implement the plan below.
-3. After making changes, verify your work:
-   - Run the build (check for a Makefile, package.json, or equivalent).
+3. You MUST produce file changes. If the plan references files that don't exist, or changes
+   that appear already implemented, look more carefully — you may be misreading the code.
+   Never conclude "already done" without diffing the exact expected state line-by-line.
+   If files truly cannot be found, fail explicitly: state which files are missing and why.
+4. After making changes, verify your work:
+   - Run the project's build command.
    - Run the test suite and fix any failures you introduced.
-   - Run linters/formatters if configured (e.g. "golangci-lint run ./..." for Go projects).
-   - Fix ALL lint errors before finishing. The PR will fail CI if linters are not clean.
-4. Do not add unrelated improvements, refactoring, or documentation changes.
+   - Run linters/formatters and fix ALL errors — the PR will fail CI otherwise.
+5. Do not add unrelated improvements, refactoring, or documentation changes.
 
 Plan:
 
 ` + planBody
+}
+
+// buildFixCRPrompt constructs the prompt for fixing code review feedback.
+// Modeled after the /fix-pr interactive skill: prioritize by severity, fix everything
+// by default, categorize each issue, run tests, and produce a structured summary.
+func buildFixCRPrompt(feedback, planBody string) string {
+	return `You are fixing code review feedback on a pull request.
+
+## Review Feedback
+
+` + feedback + `
+
+## Original Plan
+
+` + planBody + `
+
+## Instructions
+
+1. Follow the project's CLAUDE.md conventions — they take priority over these instructions.
+2. Parse the review feedback above. Issues are typically grouped by severity (Critical > High > Medium > Low).
+
+3. **Default: fix everything.** Apply ALL valid fixes regardless of scope or effort.
+   Only decline a fix if it meets one of these three criteria:
+   - **KISS violation** — the suggestion adds unnecessary complexity
+   - **Premature abstraction** — the suggestion over-engineers for hypothetical future needs
+   - **Convention conflict** — the suggestion contradicts the project's CLAUDE.md or established patterns
+
+4. For each issue, in severity order:
+   a. Read the affected file(s) to understand the current state
+   b. Apply the fix described in the review (or an equivalent that achieves the same goal)
+   c. If the suggested fix conflicts with project conventions, follow conventions and note why
+
+5. After ALL fixes are applied:
+   - Run the build (check for a Makefile, package.json, or equivalent)
+   - Run the test suite and fix any failures you introduced
+   - Run linters/formatters if configured and fix any new warnings
+   - Do NOT push broken code — if a fix introduces unfixable test failures, revert that fix
+
+6. Do not add unrelated improvements, refactoring, or documentation changes beyond what the review requests.
+
+## Required Output
+
+After making all changes, output a structured summary between ---CRSUMMARY--- markers:
+
+---CRSUMMARY---
+## CR Review Response
+
+### Fixed
+- **Issue description**: what was changed
+
+### False Positives (no action needed)
+- **Issue description**: why this isn't actually an issue
+
+### Declined
+- **Issue description**: why this was skipped (KISS, premature abstraction, or convention conflict)
+---CRSUMMARY---
+
+Omit any section that has no items. Every issue from the review must appear in exactly one section.
+`
 }
 
 // agentResultText extracts the "result" field from `claude -p --output-format json` output.

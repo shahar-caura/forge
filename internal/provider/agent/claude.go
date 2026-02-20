@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -46,10 +49,18 @@ func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 
 	c.Logger.Info("running agent", "dir", dir, "timeout", c.Timeout)
 
-	cmd := c.commandContext(ctx, "claude", "-p", prompt,
-		"--allowedTools", "Read,Write,Bash",
+	args := []string{"-p", prompt,
+		"--allowedTools", "Edit,Read,Write,Bash",
 		"--output-format", "json",
-	)
+	}
+
+	// Inject .claude/*.md project docs into the system prompt so the headless
+	// agent has the same instruction set as an interactive session.
+	if extra := loadProjectDocs(dir, c.Logger); extra != "" {
+		args = append(args, "--append-system-prompt", extra)
+	}
+
+	cmd := c.commandContext(ctx, "claude", args...)
 	cmd.Dir = dir
 
 	// When no LogWriter is set, use simple CombinedOutput (original behavior).
@@ -99,4 +110,41 @@ func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 
 	c.Logger.Info("agent completed")
 	return out, nil
+}
+
+// loadProjectDocs reads all .claude/*.md files from the working directory
+// and returns their content as a single string for --append-system-prompt.
+// These files contain project-specific instructions (linting rules, conventions)
+// that claude -p doesn't auto-load into its system prompt — only CLAUDE.md is
+// auto-loaded. Without this, headless agents miss project docs that interactive
+// sessions discover organically.
+func loadProjectDocs(dir string, logger *slog.Logger) string {
+	pattern := filepath.Join(dir, ".claude", "*.md")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			logger.Warn("skipping unreadable .claude doc", "path", path, "error", err)
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
+		}
+		name := filepath.Base(path)
+		parts = append(parts, fmt.Sprintf("# .claude/%s\n\n%s", name, content))
+		logger.Info("loaded project doc", "file", name)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return "The following project-specific instructions were loaded from .claude/ and are AUTHORITATIVE — follow them exactly.\n\n" +
+		strings.Join(parts, "\n\n---\n\n")
 }

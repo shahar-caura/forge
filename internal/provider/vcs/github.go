@@ -31,28 +31,34 @@ func New(repo string, logger *slog.Logger) *GitHub {
 }
 
 func (g *GitHub) CommitAndPush(ctx context.Context, dir, branch, message string) error {
-	steps := []struct {
-		name string
-		args []string
-	}{
-		{"git add", []string{"git", "add", "."}},
-		{"git commit", []string{"git", "commit", "-m", message}},
-		{"git push", []string{"git", "push", "-u", "origin", branch}},
-	}
-
-	for i, step := range steps {
-		g.Logger.Info("running", "step", step.name)
-
-		cmd := g.commandContext(ctx, step.args[0], step.args[1:]...)
+	run := func(name string, args ...string) error {
+		g.Logger.Info("running", "step", name)
+		cmd := g.commandContext(ctx, args[0], args[1:]...)
 		cmd.Dir = dir
-
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("step %d (%s): %w: %s", i+1, step.name, err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+
+	if err := run("git add", "git", "add", "."); err != nil {
+		return err
+	}
+
+	if err := run("git commit", "git", "commit", "-m", message); err != nil {
+		// Pre-commit hooks (e.g. ruff format) may reformat files, causing the
+		// commit to fail. Re-stage the modified files and retry once.
+		g.Logger.Info("commit failed, re-staging and retrying (pre-commit hook may have modified files)")
+		if addErr := run("git add (retry)", "git", "add", "."); addErr != nil {
+			return err // return original commit error
+		}
+		if retryErr := run("git commit (retry)", "git", "commit", "-m", message); retryErr != nil {
+			return retryErr
 		}
 	}
 
-	return nil
+	return run("git push", "git", "push", "-u", "origin", branch)
 }
 
 func (g *GitHub) Push(ctx context.Context, dir, branch string) error {
@@ -242,29 +248,35 @@ func (g *GitHub) FetchAndRebase(ctx context.Context, dir, baseBranch string) err
 func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, msgValue string) error {
 	g.Logger.Info("amending and force pushing", "branch", branch)
 
+	run := func(name string, args ...string) error {
+		g.Logger.Info("running", "step", name)
+		cmd := g.commandContext(ctx, args[0], args[1:]...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+
+	if err := run("git add", "git", "add", "."); err != nil {
+		return err
+	}
+
 	commitArgs := []string{"git", "commit", "--amend", msgFlag}
 	if msgValue != "" {
 		commitArgs = append(commitArgs, msgValue)
 	}
 
-	steps := []struct {
-		name string
-		args []string
-	}{
-		{"git add", []string{"git", "add", "."}},
-		{"git commit amend", commitArgs},
-		{"git push force", []string{"git", "push", "--force-with-lease", "origin", branch}},
-	}
-
-	for i, step := range steps {
-		cmd := g.commandContext(ctx, step.args[0], step.args[1:]...)
-		cmd.Dir = dir
-
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("step %d (%s): %w: %s", i+1, step.name, err, strings.TrimSpace(string(out)))
+	if err := run("git commit amend", commitArgs...); err != nil {
+		g.Logger.Info("amend failed, re-staging and retrying (pre-commit hook may have modified files)")
+		if addErr := run("git add (retry)", "git", "add", "."); addErr != nil {
+			return err
+		}
+		if retryErr := run("git commit amend (retry)", commitArgs...); retryErr != nil {
+			return retryErr
 		}
 	}
 
-	return nil
+	return run("git push force", "git", "push", "--force-with-lease", "origin", branch)
 }

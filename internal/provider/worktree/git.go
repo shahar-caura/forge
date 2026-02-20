@@ -45,8 +45,10 @@ func New(createCmd, removeCmd string, cleanup bool, repoRoot string, logger *slo
 func (g *Git) Create(ctx context.Context, branch, baseBranch string) (string, error) {
 	wtPath := filepath.Join(g.RepoRoot, ".worktrees", branch)
 
-	// If branch already exists (resume scenario), prune stale refs and
-	// reattach directly — the create_cmd template uses -b which would fail.
+	// If branch already exists (re-run scenario), prune stale refs,
+	// reattach, and reset to baseBranch so the agent starts from a clean slate.
+	// Without the reset, the branch carries stale commits from a previous run
+	// and the agent finds nothing to do → "no file changes" failure.
 	if g.branchExists(ctx, branch) {
 		g.Logger.Info("branch already exists, reattaching worktree", "branch", branch, "path", wtPath)
 
@@ -61,7 +63,14 @@ func (g *Git) Create(ctx context.Context, branch, baseBranch string) (string, er
 		if err != nil {
 			return "", fmt.Errorf("worktree reattach: %w: %s", err, strings.TrimSpace(string(out)))
 		}
-		g.Logger.Info("worktree reattached", "path", wtPath)
+
+		// Reset branch to base so the agent starts from current base state.
+		reset := g.commandContext(ctx, "git", "reset", "--hard", baseBranch)
+		reset.Dir = wtPath
+		if out, err := reset.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("worktree reset to base: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		g.Logger.Info("worktree reattached and reset to base", "path", wtPath, "base", baseBranch)
 		return wtPath, nil
 	}
 

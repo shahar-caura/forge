@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -117,6 +118,35 @@ func TestRun_Streaming_NonZeroExit(t *testing.T) {
 	assert.Contains(t, err.Error(), "agent failed")
 	assert.Contains(t, output, "partial output")
 	assert.Contains(t, logBuf.String(), "partial output")
+}
+
+func TestLoadProjectDocs_WithFiles(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	require.NoError(t, os.MkdirAll(claudeDir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "linting.md"), []byte("Use ruff check --fix"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "conventions.md"), []byte("Follow DRY"), 0o644))
+	// Non-md files should be ignored.
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte("{}"), 0o644))
+	// Empty md files should be skipped.
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "empty.md"), []byte(""), 0o644))
+
+	result := loadProjectDocs(dir, testLogger())
+
+	assert.Contains(t, result, "AUTHORITATIVE")
+	assert.Contains(t, result, "Use ruff check --fix")
+	assert.Contains(t, result, "Follow DRY")
+	assert.Contains(t, result, ".claude/linting.md")
+	assert.Contains(t, result, ".claude/conventions.md")
+	assert.NotContains(t, result, "settings.json")
+	assert.NotContains(t, result, "empty.md")
+}
+
+func TestLoadProjectDocs_NoClaude(t *testing.T) {
+	dir := t.TempDir()
+	result := loadProjectDocs(dir, testLogger())
+	assert.Empty(t, result)
 }
 
 func TestRun_Streaming_Timeout(t *testing.T) {
