@@ -1,0 +1,180 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    branches: [master, dev]
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    # Run on all PR events OR when someone comments @claude
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
+       (github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          trigger_phrase: "@claude"
+          assignee_trigger: "claude"
+          use_sticky_comment: true
+          show_full_output: true
+          track_progress: true
+          prompt: |
+            Review this pull request. For EVERY issue or suggestion, you MUST provide a copy-paste ready prompt for Claude Code CLI.
+
+            ## Format Requirements
+
+            For each issue, use EXACTLY this format:
+
+            ### Issue Title
+            **Severity**: Critical/High/Medium/Low
+            **File**: `path/to/file.py:line-range`
+            **Problem**: One sentence description.
+
+            <details>
+            <summary>🤖 Claude Code Prompt (click to copy)</summary>
+
+            ```
+            [COMPLETE, SELF-CONTAINED PROMPT THAT CAN BE PASTED DIRECTLY INTO CLAUDE CODE]
+
+            The prompt must include:
+            - Exact file path(s) to modify
+            - Specific line numbers or function names
+            - What to add/change/remove
+            - Any constraints or requirements
+            ```
+
+            </details>
+
+            ---
+
+            ## Example Output
+
+            ### 1. Missing Input Validation
+            **Severity**: High
+            **File**: `src/routers/api.py:21-35`
+            **Problem**: No validation on user input parameters.
+
+            <details>
+            <summary>🤖 Claude Code Prompt (click to copy)</summary>
+
+            ```
+            Add input validation to src/routers/api.py in the create_user endpoint (lines 21-35):
+            1. Validate that 'email' is a valid email format using a regex or pydantic EmailStr
+            2. Validate that 'name' is 1-100 characters and contains only alphanumeric and spaces
+            3. Return 422 Unprocessable Entity with descriptive error messages for invalid input
+            4. Add unit tests for the validation in tests/test_api.py
+            ```
+
+            </details>
+
+            ---
+
+            ## Review Sections
+
+            1. **Summary**: 2-3 sentences about what this PR does
+            2. **Critical/High Issues**: Must fix before merge
+            3. **Medium/Low Issues**: Should fix but not blocking
+            4. **Suggestions**: Nice-to-have improvements
+
+            ## Guidelines
+            - Every issue MUST have a Claude Code prompt - no exceptions
+            - Prompts must be self-contained (include all context needed)
+            - Include file paths and line numbers in prompts
+            - Focus on real issues, not style preferences
+            - Skip sections with nothing to report
+
+            ---
+
+            ## 📋 Aggregated Fix Prompts (MANDATORY)
+
+            You MUST include this section at the END of your review. Create ONE "Fix All" code block per severity level.
+
+            For EACH severity level that has issues, add a section like this:
+
+            ## 🚀 Fix All Prompts
+
+            ### 🔴 Fix All Critical Issues
+            (Include this section only if there are Critical issues)
+
+            ```
+            Please fix the following CRITICAL issues:
+
+            1. [Copy the full prompt from Critical issue #1]
+
+            2. [Copy the full prompt from Critical issue #2]
+            ```
+
+            ### 🟠 Fix All High Priority Issues
+            (Include this section only if there are High Priority issues)
+
+            ```
+            Please fix the following HIGH PRIORITY issues:
+
+            1. [Copy the full prompt from High issue #1]
+
+            2. [Copy the full prompt from High issue #2]
+            ```
+
+            ### 🟡 Fix All Medium/Low Issues
+            (Include this section only if there are Medium/Low issues)
+
+            ```
+            Please fix the following issues:
+
+            1. [Copy the full prompt from Medium/Low issue #1]
+            ```
+
+            ### 🟢 Fix All Suggestions
+            (Include this section only if there are Suggestions)
+
+            ```
+            Please implement the following suggestions:
+
+            1. [Copy the full prompt from Suggestion #1]
+            ```
+
+            IMPORTANT: This "Fix All Prompts" section is REQUIRED. Each code block should contain ALL prompts from that severity level combined, so users can copy one block to fix all issues of that severity.
+
+  # Add this job to your existing workflow
+  apply-fixes:
+    if: |
+      github.event_name == 'issue_comment' &&
+      contains(github.event.comment.body, '@claude fix')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      # TODO: see the auto fix works
+      # - uses: anthropics/claude-code-action@v1
+      #   with:
+      #     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     prompt: |
+      #       Look at the review comments on this PR and fix ALL issues marked as Critical or High.
+      #       Make the changes directly. Commit with message "fix: address review feedback"
