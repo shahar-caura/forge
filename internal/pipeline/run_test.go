@@ -1042,3 +1042,260 @@ func TestRun_CRLoop_FallbackComment(t *testing.T) {
 	assert.Equal(t, "CR feedback addressed. Changes pushed.", vc.postCommentBody)
 	assert.Empty(t, rs.CRFixSummary)
 }
+
+// --- Local CR loop tests ---
+
+func testConfigWithLocalCR() *config.Config {
+	cfg := testConfig()
+	cfg.CR = config.CRConfig{
+		Enabled:     true,
+		Mode:        "local",
+		MaxRounds:   2,
+		FixStrategy: "amend",
+	}
+	return cfg
+}
+
+func TestRun_LocalCR_HappyPath(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                                                                           // step 4: initial agent run
+			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // round 1: review (issues found)
+			"---CRSUMMARY---\nFixed the bug.\n---CRSUMMARY---",                            // round 1: fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // round 2: review (clean)
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 4, ag.callCount, "agent: initial + review1 + fix1 + review2")
+	assert.True(t, vc.amendCalled, "should amend and force push")
+	assert.True(t, vc.postCommentCalled, "should post reply comment")
+	assert.Equal(t, "Fixed the bug.", vc.postCommentBody)
+	assert.Equal(t, state.RunCompleted, rs.Status)
+}
+
+func TestRun_LocalCR_NoIssuesFound(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                                   // step 4: initial agent run
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---", // step 7: review (clean)
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, ag.callCount, "agent: initial + review only (no fix needed)")
+	assert.False(t, vc.amendCalled, "should not push when no issues")
+	assert.False(t, vc.postCommentCalled, "should not post comment when no issues")
+	assert.Equal(t, state.RunCompleted, rs.Status)
+}
+
+func TestRun_LocalCR_MultiRound(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                                                                           // step 4: initial agent run
+			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // round 1: review (issues)
+			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                            // round 1: fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // round 2: review (clean)
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 4, ag.callCount, "agent: initial + review1 + fix1 + review2")
+	assert.True(t, vc.amendCalled)
+}
+
+func TestRun_LocalCR_MaxRoundsReached(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                                                                             // step 4: initial agent run
+			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---",   // round 1: review
+			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                              // round 1: fix
+			"---CRREVIEW---\n### Bug2\n**Severity**: High\n**Fix**: fix it2\n---CRREVIEW---", // round 2: review (still issues)
+			"---CRSUMMARY---\nFixed round 2.\n---CRSUMMARY---",                              // round 2: fix
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err, "max rounds exhausted is not an error")
+	assert.Equal(t, 5, ag.callCount, "agent: initial + (review+fix) x 2")
+	assert.Equal(t, state.RunCompleted, rs.Status)
+}
+
+func TestRun_LocalCR_ReviewAgentFails(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"", // step 4: initial agent run — succeeds
+		},
+		// After first output, err kicks in for subsequent calls.
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	// Use a separate review agent that always fails.
+	failAgent := &mockAgent{err: errors.New("review agent crashed")}
+	providers := Providers{VCS: vc, Agent: ag, ReviewAgent: failAgent, Worktree: wt}
+
+	err := Run(context.Background(), testConfigWithLocalCR(), providers, planPath, rs, testLogger())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "review agent")
+	assert.Contains(t, err.Error(), "step 8")
+}
+
+func TestRun_LocalCR_NewCommitStrategy(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{
+		outputs: []string{
+			"",                                                                           // step 4: initial agent run
+			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // review
+			"---CRSUMMARY---\nFixed.\n---CRSUMMARY---",                                    // fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // review clean
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	cfg := testConfigWithLocalCR()
+	cfg.CR.FixStrategy = "new-commit"
+
+	err := Run(context.Background(), cfg, defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.False(t, vc.amendCalled, "should NOT amend with new-commit strategy")
+	assert.True(t, vc.commitCalled, "should use CommitAndPush for new-commit")
+}
+
+func TestRun_LocalCR_SeparateReviewAgent(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	codeAgent := &mockAgent{
+		outputs: []string{
+			"", // step 4: initial agent run
+			"---CRSUMMARY---\nFixed.\n---CRSUMMARY---", // fix
+		},
+	}
+	reviewAg := &mockAgent{
+		outputs: []string{
+			"---CRREVIEW---\n### Bug\n**Fix**: fix it\n---CRREVIEW---", // review (issues)
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                // review (clean)
+		},
+	}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+
+	providers := Providers{VCS: vc, Agent: codeAgent, ReviewAgent: reviewAg, Worktree: wt}
+
+	err := Run(context.Background(), testConfigWithLocalCR(), providers, planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, reviewAg.callCount, "review agent called for both rounds")
+	assert.Equal(t, 2, codeAgent.callCount, "code agent: initial run + fix")
+}
+
+// --- Review feedback extraction tests ---
+
+func TestExtractReviewFeedback(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "valid markers",
+			input: "some text\n---CRREVIEW---\n### Bug\n**Fix**: fix it\n---CRREVIEW---\nmore text",
+			want:  "### Bug\n**Fix**: fix it",
+		},
+		{
+			name:  "no markers",
+			input: "just some review text",
+			want:  "",
+		},
+		{
+			name:  "single marker only",
+			input: "---CRREVIEW---\nno closing marker",
+			want:  "",
+		},
+		{
+			name:  "NO_ISSUES between markers",
+			input: "---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",
+			want:  "NO_ISSUES",
+		},
+		{
+			name:  "empty between markers",
+			input: "---CRREVIEW---\n\n---CRREVIEW---",
+			want:  "",
+		},
+		{
+			name:  "JSON wrapped",
+			input: `{"result": "text\n---CRREVIEW---\n### Issue\n---CRREVIEW---\nend"}`,
+			want:  "### Issue",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, extractReviewFeedback(tt.input))
+		})
+	}
+}
+
+func TestHasActionableIssues(t *testing.T) {
+	tests := []struct {
+		name     string
+		feedback string
+		want     bool
+	}{
+		{"empty string", "", false},
+		{"NO_ISSUES", "NO_ISSUES", false},
+		{"NO_ISSUES with whitespace", "  NO_ISSUES  ", false},
+		{"has issues", "### Bug\n**Fix**: fix it", true},
+		{"whitespace only", "   ", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, hasActionableIssues(tt.feedback))
+		})
+	}
+}
+
+func TestBuildReviewPrompt(t *testing.T) {
+	prompt := buildReviewPrompt("main")
+
+	assert.Contains(t, prompt, "READ-ONLY")
+	assert.Contains(t, prompt, "git diff main...HEAD")
+	assert.Contains(t, prompt, "---CRREVIEW---")
+	assert.Contains(t, prompt, "NO_ISSUES")
+	assert.Contains(t, prompt, "do NOT modify any files")
+}

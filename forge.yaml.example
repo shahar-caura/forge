@@ -35,9 +35,12 @@ state:
 
 cr:
   enabled: false              # Set to true to enable CR feedback loop
-  # poll_timeout: 5m          # How long to wait for a CR comment
-  # poll_interval: 15s        # How often to poll for comments
-  # comment_pattern: ""       # Regex to match CR bot comment
+  # mode: poll                # "poll" (external GitHub Action) or "local" (agent-based review)
+  # max_rounds: 2             # Review-fix iterations for local mode
+  # agent: claude             # Agent override for CR review (defaults to agent.provider)
+  # poll_timeout: 5m          # How long to wait for a CR comment (poll mode)
+  # poll_interval: 15s        # How often to poll for comments (poll mode)
+  # comment_pattern: ""       # Regex to match CR bot comment (poll mode only)
   # fix_strategy: amend       # "amend" or "new-commit"
 
 editor:

@@ -107,6 +107,13 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 		VCS:   vcs.New(cfg.VCS.Repo, logger),
 	}
 
+	// Wire a separate review agent when cr.agent overrides the default.
+	if cfg.CR.Agent != "" && cfg.CR.Agent != cfg.Agent.Provider {
+		reviewCfg := *cfg
+		reviewCfg.Agent.Provider = cfg.CR.Agent
+		p.ReviewAgent = newAgent(&reviewCfg, logger)
+	}
+
 	if cfg.Tracker.Provider != "" {
 		p.Tracker = tracker.New(cfg.Tracker.BaseURL, cfg.Tracker.Project, cfg.Tracker.Email, cfg.Tracker.Token, cfg.Tracker.BoardID)
 	}

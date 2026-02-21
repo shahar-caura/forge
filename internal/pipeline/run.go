@@ -20,11 +20,12 @@ import (
 
 // Providers holds the wired provider implementations for a pipeline run.
 type Providers struct {
-	VCS      provider.VCS
-	Agent    provider.Agent
-	Worktree provider.Worktree
-	Tracker  provider.Tracker  // nil if unconfigured
-	Notifier provider.Notifier // nil if unconfigured
+	VCS         provider.VCS
+	Agent       provider.Agent
+	ReviewAgent provider.Agent    // nil means use Agent for CR review
+	Worktree    provider.Worktree
+	Tracker     provider.Tracker  // nil if unconfigured
+	Notifier    provider.Notifier // nil if unconfigured
 }
 
 // Run executes the forge pipeline:
@@ -243,12 +244,19 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		return err
 	}
 
-	// Step 7: Poll CR (optional — skipped if CR not enabled).
+	// Step 7: CR review (optional — skipped if CR not enabled).
+	// In "local" mode, the full review-fix loop runs here. In "poll" mode, polls for external review.
 	if err := runStep(rs, 7, logger, func() error {
 		if !cfg.CR.Enabled {
 			logger.Info("CR feedback loop disabled, skipping")
 			return nil
 		}
+
+		if cfg.CR.Mode == "local" {
+			return localReview(ctx, cfg, providers, rs, worktreePath, planBody, displayTitle, logger)
+		}
+
+		// Poll mode (default).
 		logger.Info("polling for CR comment...", "pattern", cfg.CR.CommentPattern, "timeout", cfg.CR.PollTimeout.Duration)
 
 		pattern, err := regexp.Compile(cfg.CR.CommentPattern)
@@ -293,6 +301,10 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			logger.Info("CR feedback loop disabled, skipping")
 			return nil
 		}
+		if cfg.CR.Mode == "local" {
+			logger.Info("handled in local CR loop (step 7), skipping")
+			return nil
+		}
 
 		logFile, cleanup := openAgentLog(rs.ID, 8, providers.Agent, logger)
 		defer cleanup()
@@ -316,6 +328,10 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 	if err := runStep(rs, 9, logger, func() error {
 		if !cfg.CR.Enabled {
 			logger.Info("CR feedback loop disabled, skipping")
+			return nil
+		}
+		if cfg.CR.Mode == "local" {
+			logger.Info("handled in local CR loop (step 7), skipping")
 			return nil
 		}
 		if cfg.Hooks.PreCommit != "" {
@@ -493,6 +509,7 @@ func agentResultText(output string) string {
 	return parsed.Result
 }
 
+var crReviewMarker = "---CRREVIEW---"
 var crSummaryMarker = "---CRSUMMARY---"
 
 // extractCRSummary extracts the text between ---CRSUMMARY--- markers from agent output.
@@ -505,6 +522,154 @@ func extractCRSummary(output string) string {
 	}
 	summary := strings.TrimSpace(parts[1])
 	return summary
+}
+
+// buildReviewPrompt constructs the prompt for a read-only code review agent.
+// Adapted from .github/workflows/claude_code_review.yml.
+func buildReviewPrompt(baseBranch string) string {
+	return `You are reviewing a pull request. This is a READ-ONLY review — do NOT modify any files.
+
+## Instructions
+
+1. Run ` + "`git diff " + baseBranch + "...HEAD`" + ` to see the changes in this PR.
+2. Review the changes thoroughly for:
+   - Bugs, logic errors, and edge cases
+   - Security vulnerabilities
+   - Performance issues
+   - Missing error handling
+   - Convention violations (check CLAUDE.md if present)
+   - Missing or inadequate tests
+
+3. Output your review between ` + "`---CRREVIEW---`" + ` markers using the format below.
+
+## Output Format
+
+` + "---CRREVIEW---" + `
+
+### Issue Title
+**Severity**: Critical/High/Medium/Low
+**File**: ` + "`path/to/file:line-range`" + `
+**Problem**: One sentence description.
+**Fix**: Specific description of what to change.
+
+---
+
+(Repeat for each issue found. Separate issues with ---)
+
+` + "---CRREVIEW---" + `
+
+If you find NO issues, output exactly:
+
+` + "---CRREVIEW---" + `
+NO_ISSUES
+` + "---CRREVIEW---" + `
+
+## Rules
+- Do NOT modify any files. This is a read-only review.
+- Include file paths and line numbers for every issue.
+- Focus on real issues, not style preferences.
+- Be specific about what needs to change in the Fix field.
+`
+}
+
+// extractReviewFeedback extracts the text between ---CRREVIEW--- markers from agent output.
+// Returns empty string if markers are missing or content is empty.
+func extractReviewFeedback(output string) string {
+	text := agentResultText(output)
+	parts := strings.SplitN(text, crReviewMarker, 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+// hasActionableIssues returns true if the review feedback contains issues to fix.
+// Returns false if feedback is empty or equals "NO_ISSUES".
+func hasActionableIssues(feedback string) bool {
+	trimmed := strings.TrimSpace(feedback)
+	return trimmed != "" && trimmed != "NO_ISSUES"
+}
+
+// reviewAgent returns the review-specific agent if configured, otherwise the default agent.
+func reviewAgent(providers Providers) provider.Agent {
+	if providers.ReviewAgent != nil {
+		return providers.ReviewAgent
+	}
+	return providers.Agent
+}
+
+// localReview runs the local review-then-fix loop.
+// It runs a review agent read-only, parses structured feedback, fixes issues, and pushes.
+func localReview(ctx context.Context, cfg *config.Config, providers Providers, rs *state.RunState, worktreePath, planBody, displayTitle string, logger *slog.Logger) error {
+	branch := rs.Branch
+	ra := reviewAgent(providers)
+
+	for round := 1; round <= cfg.CR.MaxRounds; round++ {
+		logger.Info("local CR review round", "round", round, "max", cfg.CR.MaxRounds)
+
+		// 1. Run review agent (read-only).
+		logFile, cleanup := openAgentLog(rs.ID, 7, ra, logger)
+		reviewPrompt := buildReviewPrompt(cfg.VCS.BaseBranch) + ra.PromptSuffix()
+		reviewOutput, err := ra.Run(ctx, worktreePath, reviewPrompt)
+		if logFile == nil {
+			saveAgentLog(rs.ID, 7, reviewOutput)
+		}
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("review agent (round %d): %w", round, err)
+		}
+
+		// 2. Extract and check feedback.
+		feedback := extractReviewFeedback(reviewOutput)
+		if !hasActionableIssues(feedback) {
+			logger.Info("review clean, no issues found", "round", round)
+			return nil
+		}
+		logger.Info("review found issues, running fix agent", "round", round)
+		rs.CRFeedback = feedback
+
+		// 3. Run fix agent.
+		logFile, cleanup = openAgentLog(rs.ID, 8, providers.Agent, logger)
+		fixPrompt := buildFixCRPrompt(feedback, planBody)
+		fixOutput, err := providers.Agent.Run(ctx, worktreePath, fixPrompt)
+		if logFile == nil {
+			saveAgentLog(rs.ID, 8, fixOutput)
+		}
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("fix agent (round %d): %w", round, err)
+		}
+		rs.CRFixSummary = extractCRSummary(fixOutput)
+
+		// 4. Pre-commit hook.
+		if cfg.Hooks.PreCommit != "" {
+			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+				return fmt.Errorf("pre-commit hook (round %d): %w", round, err)
+			}
+		}
+
+		// 5. Push.
+		if cfg.CR.FixStrategy == "new-commit" {
+			commitMsg := fmt.Sprintf("forge: address CR feedback (round %d) for %s", round, displayTitle)
+			if err := providers.VCS.CommitAndPush(ctx, worktreePath, branch, commitMsg); err != nil {
+				return fmt.Errorf("push fix (round %d): %w", round, err)
+			}
+		} else {
+			if err := providers.VCS.AmendAndForcePush(ctx, worktreePath, branch); err != nil {
+				return fmt.Errorf("push fix (round %d): %w", round, err)
+			}
+		}
+
+		// 6. Post summary comment on PR.
+		comment := "CR feedback addressed. Changes pushed."
+		if rs.CRFixSummary != "" {
+			comment = rs.CRFixSummary
+		}
+		_ = providers.VCS.PostPRComment(ctx, rs.PRNumber, comment)
+	}
+
+	logger.Warn("local CR loop exhausted max rounds with issues still present", "max_rounds", cfg.CR.MaxRounds)
+	return nil
 }
 
 // saveAgentLog writes agent output to .forge/runs/<runID>-agent-step<N>.log for debugging.

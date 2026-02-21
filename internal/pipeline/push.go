@@ -149,10 +149,14 @@ func Push(ctx context.Context, cfg *config.Config, providers Providers, opts Pus
 		return err
 	}
 
-	// Step 7: Poll CR (optional — skipped if CR not enabled).
+	// Step 7: Poll CR (optional — skipped if CR not enabled or local mode).
 	if err := runStep(rs, 7, logger, func() error {
 		if !cfg.CR.Enabled {
 			logger.Info("CR feedback loop disabled, skipping")
+			return nil
+		}
+		if cfg.CR.Mode == "local" {
+			logger.Info("local CR mode requires agent context, skipping in push mode")
 			return nil
 		}
 		logger.Info("polling for CR comment...", "pattern", cfg.CR.CommentPattern, "timeout", cfg.CR.PollTimeout.Duration)

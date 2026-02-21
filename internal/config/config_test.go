@@ -387,3 +387,128 @@ cr:
 	require.NoError(t, err)
 	assert.Equal(t, "new-commit", cfg.CR.FixStrategy)
 }
+
+// --- CR Mode & MaxRounds tests ---
+
+func TestLoad_CRMode_DefaultsToPoll(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "review done"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "poll", cfg.CR.Mode)
+}
+
+func TestLoad_CRMaxRounds_DefaultsTo2(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "review done"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, cfg.CR.MaxRounds)
+}
+
+func TestLoad_CRMode_InvalidValue(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: hybrid
+  comment_pattern: "done"
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.mode")
+}
+
+func TestLoad_CRMaxRounds_Invalid(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: local
+  max_rounds: -1
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.max_rounds")
+}
+
+func TestLoad_CRLocalMode_CommentPatternNotRequired(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: local
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "local", cfg.CR.Mode)
+	assert.Empty(t, cfg.CR.CommentPattern)
+}
+
+func TestLoad_CRPollMode_CommentPatternRequired(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: poll
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.comment_pattern")
+}

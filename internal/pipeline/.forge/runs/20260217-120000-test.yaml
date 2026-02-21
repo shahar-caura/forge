@@ -1,13 +1,16 @@
 id: 20260217-120000-test
-plan_path: /var/folders/tx/bm28bkzx7vj48wg0z_ls65gw0000gn/T/TestRun_CRLoop_FallbackComment622488201/001/auth.md
+plan_path: /var/folders/tx/bm28bkzx7vj48wg0z_ls65gw0000gn/T/TestRun_LocalCR_SeparateReviewAgent1564308113/001/auth.md
 status: completed
-created_at: 2026-02-21T12:16:34.845169+02:00
-updated_at: 2026-02-21T12:16:34.855632+02:00
+created_at: 2026-02-21T13:31:06.153839+02:00
+updated_at: 2026-02-21T13:31:06.163514+02:00
 branch: forge/auth
 worktree_path: /tmp/wt
 pr_url: https://github.com/owner/repo/pull/1
 pr_number: 1
-cr_feedback: 'Claude finished reviewing: fix stuff'
+cr_feedback: |-
+    ### Bug
+    **Fix**: fix it
+cr_fix_summary: Fixed.
 steps:
     - name: read plan
       status: completed

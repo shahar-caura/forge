@@ -54,6 +54,9 @@ type HooksConfig struct {
 // CRConfig controls the code review feedback loop.
 type CRConfig struct {
 	Enabled        bool     `yaml:"enabled"`
+	Mode           string   `yaml:"mode"`       // "poll" (default) or "local"
+	MaxRounds      int      `yaml:"max_rounds"` // review-fix iterations (default 2)
+	Agent          string   `yaml:"agent"`      // agent override for CR review (defaults to agent.provider)
 	PollTimeout    Duration `yaml:"poll_timeout"`
 	PollInterval   Duration `yaml:"poll_interval"`
 	CommentPattern string   `yaml:"comment_pattern"`
@@ -136,6 +139,12 @@ func Load(path string) (*Config, error) {
 		cfg.State.Retention.Duration = defaultRetention
 	}
 	if cfg.CR.Enabled {
+		if cfg.CR.Mode == "" {
+			cfg.CR.Mode = "poll"
+		}
+		if cfg.CR.MaxRounds == 0 {
+			cfg.CR.MaxRounds = 2
+		}
 		if cfg.CR.PollTimeout.Duration == 0 {
 			cfg.CR.PollTimeout.Duration = defaultPollTimeout
 		}
@@ -205,8 +214,17 @@ func validate(cfg *Config) error {
 
 	// Only validate CR fields when enabled.
 	if cfg.CR.Enabled {
-		if cfg.CR.CommentPattern == "" {
-			errs = append(errs, errors.New("cr.comment_pattern is required when cr.enabled is true"))
+		switch cfg.CR.Mode {
+		case "poll", "local":
+			// valid
+		default:
+			errs = append(errs, fmt.Errorf("cr.mode must be \"poll\" or \"local\", got %q", cfg.CR.Mode))
+		}
+		if cfg.CR.MaxRounds <= 0 {
+			errs = append(errs, errors.New("cr.max_rounds must be > 0"))
+		}
+		if cfg.CR.Mode == "poll" && cfg.CR.CommentPattern == "" {
+			errs = append(errs, errors.New("cr.comment_pattern is required when cr.mode is \"poll\""))
 		}
 		switch cfg.CR.FixStrategy {
 		case "amend", "new-commit":
