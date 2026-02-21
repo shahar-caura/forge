@@ -13,6 +13,9 @@ import (
 
 var runsDir = ".forge/runs"
 
+// SetRunsDir overrides the default runs directory path.
+func SetRunsDir(dir string) { runsDir = dir }
+
 // StepStatus represents the execution state of an individual step.
 type StepStatus string
 
