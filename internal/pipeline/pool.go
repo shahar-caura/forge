@@ -85,3 +85,26 @@ func (p *AgentPool) RunWithFallback(ctx context.Context, startIdx int, dir, prom
 	// unreachable, but satisfies the compiler
 	return "", "", fmt.Errorf("all agents exhausted")
 }
+
+// fallbackAgent wraps an AgentPool to satisfy provider.Agent, transparently
+// handling fallback on retryable errors. Used in batch mode so the 11-step
+// pipeline doesn't need changes.
+type fallbackAgent struct {
+	pool     *AgentPool
+	startIdx int
+	logger   *slog.Logger
+}
+
+func (f *fallbackAgent) Run(ctx context.Context, dir, prompt string) (string, error) {
+	output, _, err := f.pool.RunWithFallback(ctx, f.startIdx, dir, prompt, f.logger)
+	return output, err
+}
+
+func (f *fallbackAgent) PromptSuffix() string {
+	return f.pool.Assign(f.startIdx).PromptSuffix()
+}
+
+// NewFallbackAgent creates a provider.Agent that delegates to the pool with fallback.
+func NewFallbackAgent(pool *AgentPool, startIdx int, logger *slog.Logger) provider.Agent {
+	return &fallbackAgent{pool: pool, startIdx: startIdx, logger: logger}
+}

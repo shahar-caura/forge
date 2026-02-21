@@ -76,14 +76,22 @@ func RunBatch(ctx context.Context, cfg *config.Config, providers Providers,
 	}
 
 	// Execute level by level, parallel within each level.
+	// Each parallel issue gets a different agent via round-robin to spread rate-limit pressure.
 	completed := 0
 	total := len(issueNumbers)
+	pool := providers.AgentPool
 	for li, level := range levels {
 		if len(level) == 1 {
 			// Single issue — run directly, no goroutine overhead.
 			num := level[0]
-			logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num])
-			if err := runSingleIssue(ctx, cfg, providers, num, titleMap[num], bodyMap[num], logger); err != nil {
+			p := providers
+			if pool != nil {
+				p.Agent = NewFallbackAgent(pool, completed, logger)
+				logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num], "agent", pool.AssignName(completed))
+			} else {
+				logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num])
+			}
+			if err := runSingleIssue(ctx, cfg, p, num, titleMap[num], bodyMap[num], logger); err != nil {
 				reportFailure(ctx, providers, num, err, depsMap, issueSet, logger)
 				return fmt.Errorf("issue #%d (%s): %w", num, titleMap[num], err)
 			}
@@ -104,8 +112,15 @@ func RunBatch(ctx context.Context, cfg *config.Config, providers Providers,
 			wg.Add(1)
 			go func(i, num int) {
 				defer wg.Done()
-				logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num])
-				results[i] = result{num: num, err: runSingleIssue(ctx, cfg, providers, num, titleMap[num], bodyMap[num], logger)}
+				p := providers
+				globalIdx := completed + i
+				if pool != nil {
+					p.Agent = NewFallbackAgent(pool, globalIdx, logger)
+					logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num], "agent", pool.AssignName(globalIdx))
+				} else {
+					logger.Info("running issue", "level", li+1, "issue", num, "title", titleMap[num])
+				}
+				results[i] = result{num: num, err: runSingleIssue(ctx, cfg, p, num, titleMap[num], bodyMap[num], logger)}
 			}(i, num)
 		}
 		wg.Wait()

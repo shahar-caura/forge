@@ -302,3 +302,142 @@ func TestRunSingleIssue_CreatesPlanFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ag.called)
 }
+
+// --- Multi-agent batch assignment tests ---
+
+func TestFallbackAgent_DelegatesToPool(t *testing.T) {
+	a1 := &mockAgent{output: "result from claude"}
+	a2 := &mockAgent{output: "result from codex"}
+	pool := NewAgentPool([]provider.Agent{a1, a2}, []string{"claude", "codex"})
+
+	fa := NewFallbackAgent(pool, 0, batchLogger())
+	output, err := fa.Run(context.Background(), "/dir", "prompt")
+
+	require.NoError(t, err)
+	assert.Equal(t, "result from claude", output)
+	assert.True(t, a1.called)
+	assert.False(t, a2.called)
+}
+
+func TestFallbackAgent_FallsBackOnRetryableError(t *testing.T) {
+	a1 := &mockAgent{err: errors.New("rate limit exceeded")}
+	a2 := &mockAgent{output: "result from codex"}
+	pool := NewAgentPool([]provider.Agent{a1, a2}, []string{"claude", "codex"})
+
+	fa := NewFallbackAgent(pool, 0, batchLogger())
+	output, err := fa.Run(context.Background(), "/dir", "prompt")
+
+	require.NoError(t, err)
+	assert.Equal(t, "result from codex", output)
+}
+
+func TestFallbackAgent_PromptSuffix(t *testing.T) {
+	a1 := &mockAgent{output: ""}
+	a2 := &mockAgent{output: ""}
+	pool := NewAgentPool([]provider.Agent{a1, a2}, []string{"claude", "codex"})
+
+	fa0 := NewFallbackAgent(pool, 0, batchLogger())
+	fa1 := NewFallbackAgent(pool, 1, batchLogger())
+
+	// Both should return PromptSuffix from their assigned agent (mockAgent returns "").
+	assert.Equal(t, "", fa0.PromptSuffix())
+	assert.Equal(t, "", fa1.PromptSuffix())
+}
+
+func TestRunBatch_MultiAgentSpread(t *testing.T) {
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restoring working dir: %v", err)
+		}
+	}()
+
+	// 3 independent issues, pool of 2 agents.
+	a1 := &mockAgent{output: ""}
+	a2 := &mockAgent{output: ""}
+	pool := NewAgentPool([]provider.Agent{a1, a2}, []string{"claude", "codex"})
+
+	wt := &mockWorktree{createPath: t.TempDir()}
+	vc := &batchMockVCS{
+		mockVCS: mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}},
+		issues: []provider.GitHubIssue{
+			{Number: 1, Title: "Issue A", Body: "No deps."},
+			{Number: 2, Title: "Issue B", Body: "No deps."},
+			{Number: 3, Title: "Issue C", Body: "No deps."},
+		},
+	}
+
+	cfg := testConfig()
+	providers := Providers{VCS: vc, Agent: a1, Worktree: wt, AgentPool: pool}
+
+	err = RunBatch(context.Background(), cfg, providers, "", false, batchLogger())
+
+	require.NoError(t, err)
+	// Both agents should have been called (round-robin across 3 issues).
+	assert.True(t, a1.called, "first agent should be called")
+	assert.True(t, a2.called, "second agent should be called")
+}
+
+func TestRunBatch_SingleAgentPool_NoChange(t *testing.T) {
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restoring working dir: %v", err)
+		}
+	}()
+
+	ag := &mockAgent{output: ""}
+	pool := NewAgentPool([]provider.Agent{ag}, []string{"claude"})
+
+	wt := &mockWorktree{createPath: t.TempDir()}
+	vc := &batchMockVCS{
+		mockVCS: mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}},
+		issues: []provider.GitHubIssue{
+			{Number: 1, Title: "Issue A", Body: "No deps."},
+		},
+	}
+
+	cfg := testConfig()
+	providers := Providers{VCS: vc, Agent: ag, Worktree: wt, AgentPool: pool}
+
+	err = RunBatch(context.Background(), cfg, providers, "", false, batchLogger())
+
+	require.NoError(t, err)
+	assert.True(t, ag.called)
+}
+
+func TestRunBatch_NilPool_BackwardsCompatible(t *testing.T) {
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restoring working dir: %v", err)
+		}
+	}()
+
+	ag := &mockAgent{output: ""}
+	wt := &mockWorktree{createPath: t.TempDir()}
+	vc := &batchMockVCS{
+		mockVCS: mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}},
+		issues: []provider.GitHubIssue{
+			{Number: 1, Title: "Issue A", Body: "No deps."},
+		},
+	}
+
+	cfg := testConfig()
+	// No AgentPool — should work as before.
+	providers := Providers{VCS: vc, Agent: ag, Worktree: wt}
+
+	err = RunBatch(context.Background(), cfg, providers, "", false, batchLogger())
+
+	require.NoError(t, err)
+	assert.True(t, ag.called)
+}
