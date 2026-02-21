@@ -38,6 +38,12 @@ type Config struct {
 	CR       CRConfig       `yaml:"cr"`
 	Editor   EditorConfig   `yaml:"editor"`
 	Hooks    HooksConfig    `yaml:"hooks"`
+	Server   ServerConfig   `yaml:"server"`
+}
+
+// ServerConfig holds settings for the dashboard HTTP server.
+type ServerConfig struct {
+	Port int `yaml:"port"`
 }
 
 // HooksConfig holds lifecycle hook commands.

@@ -1,4 +1,4 @@
-.PHONY: build install test test-v lint clean validate fmt vet run release-dry
+.PHONY: build install test test-v lint clean validate fmt vet run release-dry generate web lint-spec test-api
 
 BINARY := forge
 BUILD_DIR := bin
@@ -8,7 +8,7 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-build:
+build: web
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/forge
 
 install:
@@ -33,7 +33,7 @@ vet:
 	go vet ./...
 
 clean:
-	rm -rf $(BUILD_DIR) coverage.out dist
+	rm -rf $(BUILD_DIR) coverage.out dist web/dist web/node_modules
 
 validate:
 	gh auth status
@@ -42,6 +42,23 @@ validate:
 
 release-dry:
 	goreleaser release --snapshot --clean
+
+generate:
+	oapi-codegen -config api/oapi-codegen.yaml -exclude-operation-ids streamEvents api/openapi.yaml
+
+web:
+	cd web && npm ci && npm run build
+
+lint-spec:
+	npx @stoplight/spectral-cli lint api/openapi.yaml --ruleset api/.spectral.yaml
+
+test-api:
+	@echo "Starting server for contract tests..."
+	@PORT=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'); \
+	./$(BUILD_DIR)/$(BINARY) serve --port $$PORT & SERVER_PID=$$!; \
+	sleep 1; \
+	schemathesis run api/openapi.yaml --base-url http://localhost:$$PORT/api --mode=all; \
+	EXIT=$$?; kill $$SERVER_PID 2>/dev/null; exit $$EXIT
 
 # Catch-all so `make run <path>` doesn't error on the path argument.
 %:

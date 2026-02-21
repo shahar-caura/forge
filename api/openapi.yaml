@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: Forge Dashboard API
+  description: REST API for the Forge CI/CD dashboard
+  version: 0.1.0
+
+servers:
+  - url: /api
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      tags: [system]
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /runs:
+    get:
+      operationId: listRuns
+      summary: List pipeline runs
+      tags: [runs]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/RunStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunList"
+
+  /runs/{id}:
+    get:
+      operationId: getRun
+      summary: Get run detail
+      tags: [runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /events:
+    get:
+      operationId: streamEvents
+      summary: SSE event stream for real-time run updates
+      tags: [events]
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+components:
+  schemas:
+    RunStatus:
+      type: string
+      enum: [active, completed, failed]
+
+    StepStatus:
+      type: string
+      enum: [pending, running, completed, failed]
+
+    StepState:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/StepStatus"
+        error:
+          type: string
+
+    Run:
+      type: object
+      required: [id, plan_path, status, created_at, updated_at, steps]
+      properties:
+        id:
+          type: string
+        plan_path:
+          type: string
+        mode:
+          type: string
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        branch:
+          type: string
+        worktree_path:
+          type: string
+        pr_url:
+          type: string
+        pr_number:
+          type: integer
+        issue_key:
+          type: string
+        issue_url:
+          type: string
+        cr_feedback:
+          type: string
+        cr_fix_summary:
+          type: string
+        plan_title:
+          type: string
+        source_issue:
+          type: integer
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepState"
+
+    RunList:
+      type: object
+      required: [runs, total]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Run"
+        total:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status, version, uptime_seconds]
+      properties:
+        status:
+          type: string
+        version:
+          type: string
+        uptime_seconds:
+          type: integer

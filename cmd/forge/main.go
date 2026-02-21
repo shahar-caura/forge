@@ -47,6 +47,7 @@ func newRootCmd(logger *slog.Logger) *cobra.Command {
 		newEditCmd(logger),
 		newCompletionCmd(),
 		newCleanupCmd(logger),
+		newServeCmd(logger),
 	)
 
 	return root
