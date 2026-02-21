@@ -133,5 +133,7 @@ func TestGemini_Run_VerifiesArgs(t *testing.T) {
 	assert.Contains(t, capturedArgs, "--yolo")
 	assert.Contains(t, capturedArgs, "--output-format")
 	assert.Contains(t, capturedArgs, "json")
-	assert.Equal(t, "implement feature X", capturedArgs[len(capturedArgs)-1])
+	// Prompt follows -p flag (index 0="-p", 1=prompt).
+	assert.Equal(t, "-p", capturedArgs[0])
+	assert.Equal(t, "implement feature X", capturedArgs[1])
 }
