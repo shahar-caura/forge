@@ -1,6 +1,11 @@
 package pipeline
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+
 	"github.com/shahar-caura/forge/internal/provider"
 )
 
@@ -34,4 +39,49 @@ func (p *AgentPool) Primary() provider.Agent {
 // Len returns the number of agents in the pool.
 func (p *AgentPool) Len() int {
 	return len(p.agents)
+}
+
+// retryableError returns true if the error looks like a rate-limit, quota, or
+// credential issue that a different agent might not hit.
+func retryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	patterns := []string{
+		"rate limit", "429", "quota", "exceeded",
+		"unauthorized", "403", "credentials", "timed out",
+	}
+	for _, p := range patterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// RunWithFallback tries the agent at startIdx, falling back to the next agent
+// on retryable errors. Returns the output, the name of the agent that
+// succeeded, and any final error.
+func (p *AgentPool) RunWithFallback(ctx context.Context, startIdx int, dir, prompt string, logger *slog.Logger) (string, string, error) {
+	n := len(p.agents)
+	for i := 0; i < n; i++ {
+		idx := (startIdx + i) % n
+		agent := p.agents[idx]
+		name := p.names[idx]
+
+		output, err := agent.Run(ctx, dir, prompt)
+		if err == nil {
+			return output, name, nil
+		}
+
+		if !retryableError(err) || i == n-1 {
+			return output, name, fmt.Errorf("agent %s: %w", name, err)
+		}
+
+		logger.Warn("agent failed with retryable error, trying next",
+			"agent", name, "error", err, "next", p.names[(startIdx+i+1)%n])
+	}
+	// unreachable, but satisfies the compiler
+	return "", "", fmt.Errorf("all agents exhausted")
 }
