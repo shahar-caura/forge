@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// batchMockVCS extends mockVCS with ListIssues support.
+// batchMockVCS extends mockVCS with ListIssues and GetIssue support.
 type batchMockVCS struct {
 	mockVCS
 	issues     []provider.GitHubIssue
@@ -20,6 +20,9 @@ type batchMockVCS struct {
 	listCalled bool
 	listState  string
 	listLabel  string
+	// GetIssue support for expandDeps tests.
+	getIssueMap map[int]*provider.GitHubIssue
+	getIssueErr map[int]error
 }
 
 func (m *batchMockVCS) ListIssues(_ context.Context, state string, label string) ([]provider.GitHubIssue, error) {
@@ -27,6 +30,20 @@ func (m *batchMockVCS) ListIssues(_ context.Context, state string, label string)
 	m.listState = state
 	m.listLabel = label
 	return m.issues, m.listErr
+}
+
+func (m *batchMockVCS) GetIssue(_ context.Context, number int) (*provider.GitHubIssue, error) {
+	if m.getIssueErr != nil {
+		if err, ok := m.getIssueErr[number]; ok {
+			return nil, err
+		}
+	}
+	if m.getIssueMap != nil {
+		if iss, ok := m.getIssueMap[number]; ok {
+			return iss, nil
+		}
+	}
+	return nil, errors.New("issue not found")
 }
 
 func batchLogger() *slog.Logger {
@@ -156,6 +173,106 @@ func TestRunBatch_DryRun_ExternalDepsIgnored(t *testing.T) {
 
 	// External dep #999 not in set — should not cause error.
 	err := RunBatch(context.Background(), cfg, providers, "", true, batchLogger())
+	require.NoError(t, err)
+}
+
+// --- expandDeps tests ---
+
+func TestExpandDeps_FetchMissing(t *testing.T) {
+	vc := &batchMockVCS{
+		getIssueMap: map[int]*provider.GitHubIssue{
+			10: {Number: 10, Title: "Dep Issue", Body: "No further deps."},
+		},
+	}
+
+	issueSet := map[int]bool{1: true}
+	titleMap := map[int]string{1: "Feature"}
+	bodyMap := map[int]string{1: "Depends on #10"}
+
+	err := expandDeps(context.Background(), vc, issueSet, titleMap, bodyMap, batchLogger())
+
+	require.NoError(t, err)
+	assert.True(t, issueSet[10], "dep #10 should be added")
+	assert.Equal(t, "Dep Issue", titleMap[10])
+}
+
+func TestExpandDeps_TransitiveDeps(t *testing.T) {
+	vc := &batchMockVCS{
+		getIssueMap: map[int]*provider.GitHubIssue{
+			10: {Number: 10, Title: "Dep A", Body: "Depends on #20"},
+			20: {Number: 20, Title: "Dep B", Body: "No deps."},
+		},
+	}
+
+	issueSet := map[int]bool{1: true}
+	titleMap := map[int]string{1: "Feature"}
+	bodyMap := map[int]string{1: "Depends on #10"}
+
+	err := expandDeps(context.Background(), vc, issueSet, titleMap, bodyMap, batchLogger())
+
+	require.NoError(t, err)
+	assert.True(t, issueSet[10], "dep #10 should be added")
+	assert.True(t, issueSet[20], "transitive dep #20 should be added")
+	assert.Equal(t, "Dep B", titleMap[20])
+}
+
+func TestExpandDeps_NoDeps(t *testing.T) {
+	vc := &batchMockVCS{}
+
+	issueSet := map[int]bool{1: true}
+	titleMap := map[int]string{1: "Feature"}
+	bodyMap := map[int]string{1: "No dependencies here."}
+
+	err := expandDeps(context.Background(), vc, issueSet, titleMap, bodyMap, batchLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(issueSet))
+}
+
+func TestExpandDeps_FetchErrorTreatedAsExternal(t *testing.T) {
+	vc := &batchMockVCS{
+		getIssueErr: map[int]error{10: errors.New("not found")},
+	}
+
+	issueSet := map[int]bool{1: true}
+	titleMap := map[int]string{1: "Feature"}
+	bodyMap := map[int]string{1: "Depends on #10"}
+
+	err := expandDeps(context.Background(), vc, issueSet, titleMap, bodyMap, batchLogger())
+
+	require.NoError(t, err, "fetch error should not fail the expansion")
+	assert.False(t, issueSet[10], "failed dep should not be in set")
+}
+
+func TestExpandDeps_AlreadyInSet(t *testing.T) {
+	vc := &batchMockVCS{}
+
+	issueSet := map[int]bool{1: true, 10: true}
+	titleMap := map[int]string{1: "Feature", 10: "Already Known"}
+	bodyMap := map[int]string{1: "Depends on #10", 10: "No deps."}
+
+	err := expandDeps(context.Background(), vc, issueSet, titleMap, bodyMap, batchLogger())
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(issueSet), "no new issues should be added")
+}
+
+func TestRunBatch_DryRun_WithLabel_ExpandsDeps(t *testing.T) {
+	vc := &batchMockVCS{
+		issues: []provider.GitHubIssue{
+			{Number: 2, Title: "Feature B", Body: "Depends on #1"},
+		},
+		getIssueMap: map[int]*provider.GitHubIssue{
+			1: {Number: 1, Title: "Feature A", Body: "No deps."},
+		},
+	}
+
+	cfg := testConfig()
+	providers := Providers{VCS: vc}
+
+	// With a label, expandDeps should fetch #1 even though it's not labeled.
+	err := RunBatch(context.Background(), cfg, providers, "dashboard", true, batchLogger())
+
 	require.NoError(t, err)
 }
 

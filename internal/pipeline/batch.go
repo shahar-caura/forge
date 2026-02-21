@@ -11,6 +11,7 @@ import (
 
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/graph"
+	"github.com/shahar-caura/forge/internal/provider"
 	"github.com/shahar-caura/forge/internal/state"
 )
 
@@ -42,6 +43,24 @@ func RunBatch(ctx context.Context, cfg *config.Config, providers Providers,
 		bodyMap[iss.Number] = iss.Body
 		if deps := graph.ParseDeps(iss.Body); len(deps) > 0 {
 			depsMap[iss.Number] = deps
+		}
+	}
+
+	// Expand deps: fetch missing dependency issues not in the labeled set.
+	if label != "" {
+		if err := expandDeps(ctx, providers.VCS, issueSet, titleMap, bodyMap, logger); err != nil {
+			return fmt.Errorf("expanding dependencies: %w", err)
+		}
+		// Rebuild issueNumbers and depsMap from expanded set.
+		issueNumbers = issueNumbers[:0]
+		for num := range issueSet {
+			issueNumbers = append(issueNumbers, num)
+		}
+		depsMap = make(map[int][]int, len(issueNumbers))
+		for _, num := range issueNumbers {
+			if deps := graph.ParseDeps(bodyMap[num]); len(deps) > 0 {
+				depsMap[num] = deps
+			}
 		}
 	}
 
@@ -143,6 +162,54 @@ func runSingleIssue(ctx context.Context, cfg *config.Config, providers Providers
 
 	logger.Info("starting run from issue", "id", runID, "issue", number, "title", title)
 	return Run(ctx, cfg, providers, planPath, rs, logger)
+}
+
+// expandDeps iteratively discovers dependency issues that are not in the current
+// set by parsing "Depends on #N" from issue bodies and fetching missing issues.
+// Handles transitive deps. Fetch errors are logged and treated as external deps (skipped).
+func expandDeps(ctx context.Context, vcs interface {
+	GetIssue(ctx context.Context, number int) (*provider.GitHubIssue, error)
+}, issueSet map[int]bool, titleMap map[int]string, bodyMap map[int]string, logger *slog.Logger) error {
+	external := make(map[int]bool) // deps we tried to fetch and failed — treat as external
+	for {
+		var missing []int
+		for num := range issueSet {
+			for _, dep := range graph.ParseDeps(bodyMap[num]) {
+				if !issueSet[dep] && !external[dep] {
+					missing = append(missing, dep)
+				}
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+
+		// Deduplicate within this round.
+		seen := make(map[int]bool, len(missing))
+		added := 0
+		for _, dep := range missing {
+			if seen[dep] {
+				continue
+			}
+			seen[dep] = true
+
+			issue, err := vcs.GetIssue(ctx, dep)
+			if err != nil {
+				logger.Warn("could not fetch dependency issue, treating as external", "issue", dep, "error", err)
+				external[dep] = true
+				continue
+			}
+			issueSet[dep] = true
+			titleMap[dep] = issue.Title
+			bodyMap[dep] = issue.Body
+			added++
+			logger.Info("expanded dependency", "issue", dep, "title", issue.Title)
+		}
+
+		if added == 0 {
+			return nil
+		}
+	}
 }
 
 // printPlan prints the topsorted execution plan.
