@@ -221,6 +221,24 @@ func (g *GitHub) ListIssues(ctx context.Context, state string, label string) ([]
 	return issues, nil
 }
 
+func (g *GitHub) GetPRState(ctx context.Context, prNumber int) (string, error) {
+	g.Logger.Info("fetching PR state", "pr", prNumber)
+
+	cmd := g.commandContext(ctx, "gh", "pr", "view",
+		strconv.Itoa(prNumber),
+		"--repo", g.Repo,
+		"--json", "state",
+		"--jq", ".state",
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (g *GitHub) FetchAndRebase(ctx context.Context, dir, baseBranch string) error {
 	g.Logger.Info("rebasing onto latest base branch", "base", baseBranch)
 

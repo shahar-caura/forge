@@ -87,6 +87,9 @@ func cmdRunBatch(cmd *cobra.Command, logger *slog.Logger, label string, dryRun b
 	err = pipeline.RunBatch(ctx, cfg, providers, label, dryRun, logger)
 	if !dryRun {
 		cleanupOldRuns(cfg, logger)
+		if cfg.Worktree.CleanupOnMerge {
+			cleanupMergedWorktrees(ctx, providers, logger)
+		}
 	}
 	return err
 }
@@ -137,6 +140,9 @@ func cmdRun(cmd *cobra.Command, logger *slog.Logger, planPath string, issueNumbe
 
 		pipelineErr := pipeline.Run(ctx, cfg, providers, planPath, rs, logger)
 		cleanupOldRuns(cfg, logger)
+		if cfg.Worktree.CleanupOnMerge {
+			cleanupMergedWorktrees(ctx, providers, logger)
+		}
 		return pipelineErr
 	}
 
@@ -157,6 +163,9 @@ func cmdRun(cmd *cobra.Command, logger *slog.Logger, planPath string, issueNumbe
 
 	pipelineErr := pipeline.Run(ctx, cfg, providers, planPath, rs, logger)
 	cleanupOldRuns(cfg, logger)
+	if cfg.Worktree.CleanupOnMerge {
+		cleanupMergedWorktrees(ctx, providers, logger)
+	}
 	return pipelineErr
 }
 
@@ -165,5 +174,14 @@ func cleanupOldRuns(cfg *config.Config, logger *slog.Logger) {
 		logger.Warn("state cleanup failed", "error", err)
 	} else if deleted > 0 {
 		logger.Info("cleaned up old run states", "deleted", deleted)
+	}
+}
+
+func cleanupMergedWorktrees(ctx context.Context, providers pipeline.Providers, logger *slog.Logger) {
+	cleaned, err := pipeline.CleanupMergedWorktrees(ctx, providers.VCS, providers.Worktree, logger)
+	if err != nil {
+		logger.Warn("merged worktree cleanup failed", "error", err)
+	} else if cleaned > 0 {
+		logger.Info("cleaned up merged worktrees", "count", cleaned)
 	}
 }

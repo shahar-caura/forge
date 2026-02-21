@@ -330,3 +330,41 @@ func TestAmendAndForcePush_Failure(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "git add")
 }
+
+// --- GetPRState tests ---
+
+func TestGetPRState_Success(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "MERGED", exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	state, err := g.GetPRState(context.Background(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, "MERGED", state)
+}
+
+func TestGetPRState_Open(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "OPEN", exitCode: 0},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	state, err := g.GetPRState(context.Background(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, "OPEN", state)
+}
+
+func TestGetPRState_Error(t *testing.T) {
+	ct := &callTracker{results: map[string]stubResult{
+		"gh": {stdout: "not found", exitCode: 1},
+	}}
+	g := New("owner/repo", testLogger())
+	g.commandContext = ct.commandContext
+
+	_, err := g.GetPRState(context.Background(), 999)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gh pr view")
+}

@@ -43,6 +43,7 @@ type VCS interface {
 	FetchAndRebase(ctx context.Context, dir, baseBranch string) error
 	GetIssue(ctx context.Context, number int) (*GitHubIssue, error)
 	ListIssues(ctx context.Context, state string, label string) ([]GitHubIssue, error)
+	GetPRState(ctx context.Context, prNumber int) (string, error)
 }
 
 // Agent runs an AI coding agent with a prompt in a working directory.

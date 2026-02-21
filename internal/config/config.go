@@ -85,9 +85,10 @@ type AgentConfig struct {
 }
 
 type WorktreeConfig struct {
-	CreateCmd string `yaml:"create_cmd"`
-	RemoveCmd string `yaml:"remove_cmd"`
-	Cleanup   bool   `yaml:"cleanup"`
+	CreateCmd      string `yaml:"create_cmd"`
+	RemoveCmd      string `yaml:"remove_cmd"`
+	Cleanup        bool   `yaml:"cleanup"`
+	CleanupOnMerge bool   `yaml:"cleanup_on_merge"`
 }
 
 type EditorConfig struct {

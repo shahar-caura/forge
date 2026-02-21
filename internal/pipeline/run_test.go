@@ -134,6 +134,10 @@ func (m *mockVCS) ListIssues(_ context.Context, _ string, _ string) ([]provider.
 	return nil, nil
 }
 
+func (m *mockVCS) GetPRState(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 type mockTracker struct {
 	issue *provider.Issue
 	err   error
