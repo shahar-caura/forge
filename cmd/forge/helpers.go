@@ -95,6 +95,8 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 		return pipeline.Providers{}, fmt.Errorf("resolving repo root: %w", err)
 	}
 
+	pool := newAgentPool(cfg, logger)
+
 	p := pipeline.Providers{
 		Worktree: worktree.New(
 			cfg.Worktree.CreateCmd,
@@ -103,8 +105,9 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 			repoRoot,
 			logger,
 		),
-		Agent: newAgent(cfg, logger),
-		VCS:   vcs.New(cfg.VCS.Repo, logger),
+		Agent:     pool.Primary(),
+		AgentPool: pool,
+		VCS:       vcs.New(cfg.VCS.Repo, logger),
 	}
 
 	// Wire a separate review agent when cr.agent overrides the default.
@@ -123,6 +126,24 @@ func wireProviders(cfg *config.Config, logger *slog.Logger) (pipeline.Providers,
 	}
 
 	return p, nil
+}
+
+// newAgentPool constructs an AgentPool from the config's agent.providers list.
+// Falls back to a single-agent pool using the primary agent.provider.
+func newAgentPool(cfg *config.Config, logger *slog.Logger) *pipeline.AgentPool {
+	names := cfg.Agent.Providers
+	if len(names) == 0 {
+		names = []string{cfg.Agent.Provider}
+	}
+
+	agents := make([]provider.Agent, len(names))
+	for i, name := range names {
+		agentCfg := *cfg
+		agentCfg.Agent.Provider = name
+		agents[i] = newAgent(&agentCfg, logger)
+	}
+
+	return pipeline.NewAgentPool(agents, names)
 }
 
 func newAgent(cfg *config.Config, logger *slog.Logger) provider.Agent {

@@ -89,6 +89,7 @@ type NotifierConfig struct {
 
 type AgentConfig struct {
 	Provider     string   `yaml:"provider"`
+	Providers    []string `yaml:"providers"`
 	Timeout      Duration `yaml:"timeout"`
 	AllowedTools string   `yaml:"allowed_tools"`
 }
@@ -184,6 +185,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Agent.Timeout.Duration <= 0 {
 		errs = append(errs, errors.New("agent.timeout must be positive"))
+	}
+	recognized := map[string]bool{"claude": true, "codex": true, "gemini": true, "ralph": true}
+	for _, name := range cfg.Agent.Providers {
+		if !recognized[name] {
+			errs = append(errs, fmt.Errorf("agent.providers: unrecognized agent %q", name))
+		}
 	}
 	if cfg.Worktree.CreateCmd == "" {
 		errs = append(errs, errors.New("worktree.create_cmd is required"))

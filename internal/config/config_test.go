@@ -493,6 +493,62 @@ cr:
 	assert.Empty(t, cfg.CR.CommentPattern)
 }
 
+// --- Agent providers list tests ---
+
+func TestLoad_AgentProviders_Parsed(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+  providers: [claude, gemini, codex]
+worktree:
+  create_cmd: "echo hello"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude", "gemini", "codex"}, cfg.Agent.Providers)
+}
+
+func TestLoad_AgentProviders_Empty(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Agent.Providers)
+}
+
+func TestLoad_AgentProviders_UnrecognizedAgent(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+  providers: [claude, unknown]
+worktree:
+  create_cmd: "echo hello"
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unrecognized agent")
+	assert.Contains(t, err.Error(), "unknown")
+}
+
 func TestLoad_CRPollMode_CommentPatternRequired(t *testing.T) {
 	yaml := `
 vcs:

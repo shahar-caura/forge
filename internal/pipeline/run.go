@@ -26,6 +26,7 @@ type Providers struct {
 	Worktree    provider.Worktree
 	Tracker     provider.Tracker  // nil if unconfigured
 	Notifier    provider.Notifier // nil if unconfigured
+	AgentPool   *AgentPool        // nil means single-agent mode
 }
 
 // Run executes the forge pipeline:
