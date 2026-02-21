@@ -1,22 +1,7 @@
 <script lang="ts">
-  let connected = $state(false);
+  import { isConnected } from "./lib/state/sse.svelte.js";
 
-  $effect(() => {
-    const es = new EventSource("/api/events");
-
-    es.onopen = () => {
-      connected = true;
-    };
-
-    es.onerror = () => {
-      connected = false;
-    };
-
-    return () => {
-      es.close();
-      connected = false;
-    };
-  });
+  let connected = $derived(isConnected());
 </script>
 
 <footer class="status-bar">
@@ -27,10 +12,10 @@
 <style>
   .status-bar {
     padding: 0.35rem 1rem;
-    background: #1a1a1a;
-    border-top: 1px solid #2a2a2a;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
     font-size: 0.75rem;
-    color: #888;
+    color: var(--text-muted);
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -40,10 +25,10 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #ef4444;
+    background: var(--color-error);
   }
 
   .indicator.connected {
-    background: #22c55e;
+    background: var(--color-success);
   }
 </style>

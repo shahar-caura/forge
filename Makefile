@@ -1,4 +1,4 @@
-.PHONY: build install test test-v lint clean validate fmt vet run release-dry generate web lint-spec test-api
+.PHONY: build install test test-v lint clean validate fmt vet run release-dry generate web web-lint web-test lint-spec test-api
 
 BINARY := forge
 BUILD_DIR := bin
@@ -48,6 +48,12 @@ generate:
 
 web:
 	cd web && npm ci && npm run build
+
+web-lint:
+	cd web && npm run lint && npm run format:check
+
+web-test:
+	cd web && npm run test
 
 lint-spec:
 	npx @stoplight/spectral-cli lint api/openapi.yaml --ruleset api/.spectral.yaml

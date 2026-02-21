@@ -1,7 +1,18 @@
 <script lang="ts">
   import StatusBar from "./StatusBar.svelte";
+  import RunsList from "./components/RunsList.svelte";
+  import RunDetail from "./components/RunDetail.svelte";
+  import { match, navigate } from "./lib/router.svelte.js";
+  import { connect, disconnect } from "./lib/state/sse.svelte.js";
+  import { fetchRuns } from "./lib/state/runs.svelte.js";
 
-  let currentView = $state("runs");
+  let route = $derived(match());
+
+  $effect(() => {
+    fetchRuns();
+    connect();
+    return disconnect;
+  });
 </script>
 
 <div class="layout">
@@ -11,17 +22,17 @@
 
   <div class="body">
     <nav>
-      <button class:active={currentView === "runs"} onclick={() => (currentView = "runs")}>
-        Runs
-      </button>
-      <button class:active={currentView === "stats"} onclick={() => (currentView = "stats")}>
+      <button class:active={route.route === "runs"} onclick={() => navigate("/")}>Runs</button>
+      <button class:active={route.route === "stats"} onclick={() => navigate("/stats")}>
         Stats
       </button>
     </nav>
 
     <main>
-      {#if currentView === "runs"}
-        <p>Runs list coming soon.</p>
+      {#if route.route === "runs"}
+        <RunsList />
+      {:else if route.route === "run-detail"}
+        <RunDetail id={route.params.id} />
       {:else}
         <p>Stats coming soon.</p>
       {/if}
@@ -35,8 +46,8 @@
   :global(body) {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #0f0f0f;
-    color: #e0e0e0;
+    background: var(--bg-base);
+    color: var(--text-primary);
   }
 
   .layout {
@@ -47,8 +58,8 @@
 
   header {
     padding: 0.75rem 1.5rem;
-    background: #1a1a1a;
-    border-bottom: 1px solid #2a2a2a;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
   }
 
   header h1 {
@@ -66,8 +77,8 @@
   nav {
     width: 180px;
     padding: 1rem 0.75rem;
-    background: #141414;
-    border-right: 1px solid #2a2a2a;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
@@ -76,7 +87,7 @@
   nav button {
     background: none;
     border: none;
-    color: #999;
+    color: var(--text-secondary);
     padding: 0.5rem 0.75rem;
     text-align: left;
     border-radius: 6px;
@@ -85,13 +96,13 @@
   }
 
   nav button:hover {
-    background: #1f1f1f;
-    color: #e0e0e0;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   nav button.active {
-    background: #252525;
-    color: #fff;
+    background: var(--bg-active);
+    color: var(--text-bright);
   }
 
   main {

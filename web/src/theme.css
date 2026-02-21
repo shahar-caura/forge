@@ -1,0 +1,19 @@
+:root {
+  --bg-base: #0f0f0f;
+  --bg-surface: #1a1a1a;
+  --bg-sidebar: #141414;
+  --bg-hover: #1f1f1f;
+  --bg-active: #252525;
+  --border: #2a2a2a;
+
+  --text-primary: #e0e0e0;
+  --text-secondary: #999;
+  --text-muted: #888;
+  --text-bright: #fff;
+
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-running: #3b82f6;
+  --color-pending: #6b7280;
+}
