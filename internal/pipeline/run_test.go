@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 // Mock providers for testing.
 
 type mockWorktree struct {
+	mu           sync.Mutex
 	createPath   string
 	createErr    error
 	removeErr    error
@@ -28,16 +30,33 @@ type mockWorktree struct {
 }
 
 func (m *mockWorktree) Create(_ context.Context, _, _ string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.createCalled = true
 	return m.createPath, m.createErr
 }
 
 func (m *mockWorktree) Remove(_ context.Context, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.removeCalled = true
 	return m.removeErr
 }
 
+func (m *mockWorktree) CreateCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.createCalled
+}
+
+func (m *mockWorktree) RemoveCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.removeCalled
+}
+
 type mockAgent struct {
+	mu        sync.Mutex
 	err       error
 	called    bool
 	prompts   []string
@@ -49,6 +68,8 @@ type mockAgent struct {
 func (m *mockAgent) PromptSuffix() string { return "" }
 
 func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.called = true
 	idx := m.callCount
 	m.callCount++
@@ -60,7 +81,14 @@ func (m *mockAgent) Run(_ context.Context, _, prompt string) (string, error) {
 	return out, m.err
 }
 
+func (m *mockAgent) Called() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.called
+}
+
 type mockVCS struct {
+	mu                sync.Mutex
 	commitErr         error
 	prErr             error
 	pr                *provider.PR
@@ -80,16 +108,22 @@ type mockVCS struct {
 }
 
 func (m *mockVCS) CommitAndPush(_ context.Context, _, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.commitCalled = true
 	return m.commitErr
 }
 
 func (m *mockVCS) Push(_ context.Context, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.pushCalled = true
 	return m.pushErr
 }
 
 func (m *mockVCS) CreatePR(_ context.Context, _, _, _, body string) (*provider.PR, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.prBody = body
 	if m.prErr != nil {
 		return nil, m.prErr
@@ -98,22 +132,30 @@ func (m *mockVCS) CreatePR(_ context.Context, _, _, _, body string) (*provider.P
 }
 
 func (m *mockVCS) GetPRComments(_ context.Context, _ int) ([]provider.Comment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.getCommentsCalled = true
 	return m.comments, m.getCommentsErr
 }
 
 func (m *mockVCS) PostPRComment(_ context.Context, _ int, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.postCommentCalled = true
 	m.postCommentBody = body
 	return m.postCommentErr
 }
 
 func (m *mockVCS) AmendAndForcePush(_ context.Context, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.amendCalled = true
 	return m.amendErr
 }
 
 func (m *mockVCS) AmendAndForcePushMsg(_ context.Context, _, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.amendCalled = true
 	return m.amendErr
 }
@@ -151,11 +193,14 @@ func (m *mockTracker) CreateIssue(_ context.Context, _, _ string) (*provider.Iss
 }
 
 type mockNotifier struct {
+	mu       sync.Mutex
 	err      error
 	messages []string
 }
 
 func (m *mockNotifier) Notify(_ context.Context, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.messages = append(m.messages, message)
 	return m.err
 }
@@ -219,7 +264,7 @@ func TestRun_HappyPath(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.True(t, wt.removeCalled, "cleanup should be called on success")
+	assert.True(t, wt.RemoveCalled(), "cleanup should be called on success")
 }
 
 func TestRun_PlanNotFound(t *testing.T) {
@@ -234,7 +279,7 @@ func TestRun_PlanNotFound(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step 1")
-	assert.False(t, wt.removeCalled)
+	assert.False(t, wt.RemoveCalled())
 }
 
 func TestRun_WorktreeCreateFails(t *testing.T) {
@@ -249,7 +294,7 @@ func TestRun_WorktreeCreateFails(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step 4")
-	assert.False(t, wt.removeCalled, "no cleanup if create failed")
+	assert.False(t, wt.RemoveCalled(), "no cleanup if create failed")
 }
 
 func TestRun_AgentFails(t *testing.T) {
@@ -469,8 +514,8 @@ func TestRun_ResumeSkipsCompletedSteps(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.False(t, wt.createCalled, "worktree.Create should NOT be called on resume")
-	assert.True(t, ag.called, "agent should still be called")
+	assert.False(t, wt.CreateCalled(), "worktree.Create should NOT be called on resume")
+	assert.True(t, ag.Called(), "agent should still be called")
 }
 
 func TestRun_ResumeAfterAgentFailure(t *testing.T) {
@@ -495,7 +540,7 @@ func TestRun_ResumeAfterAgentFailure(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.True(t, ag.called, "agent should be re-run on resume")
+	assert.True(t, ag.Called(), "agent should be re-run on resume")
 	assert.Equal(t, state.StepCompleted, rs.Steps[4].Status)
 	assert.Equal(t, state.RunCompleted, rs.Status)
 }
@@ -511,7 +556,7 @@ func TestRun_WorktreePreservedOnFailure(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.Error(t, err)
-	assert.False(t, wt.removeCalled, "worktree should be preserved on failure for resume")
+	assert.False(t, wt.RemoveCalled(), "worktree should be preserved on failure for resume")
 	assert.Equal(t, state.RunFailed, rs.Status)
 }
 
@@ -526,7 +571,7 @@ func TestRun_WorktreeCleanedOnSuccess(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.True(t, wt.removeCalled, "worktree should be cleaned on success")
+	assert.True(t, wt.RemoveCalled(), "worktree should be cleaned on success")
 }
 
 func TestRun_ResumeWithMissingWorktree_ReCreates(t *testing.T) {
@@ -549,7 +594,7 @@ func TestRun_ResumeWithMissingWorktree_ReCreates(t *testing.T) {
 	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.True(t, wt.createCalled, "worktree should be re-created")
+	assert.True(t, wt.CreateCalled(), "worktree should be re-created")
 	assert.Equal(t, newPath, rs.WorktreePath, "worktree path should be updated")
 }
 
@@ -644,7 +689,7 @@ func TestRun_TrackerFails_PipelineFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step 2")
 	assert.Contains(t, err.Error(), "create issue")
-	assert.False(t, ag.called, "agent should not run if tracker fails")
+	assert.False(t, ag.Called(), "agent should not run if tracker fails")
 }
 
 // --- Phase 2 tests: Notifier ---
@@ -847,7 +892,7 @@ func TestRun_CRLoop_Resume(t *testing.T) {
 	err := Run(context.Background(), testConfigWithCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
-	assert.True(t, ag.called, "agent should run for fix cr step")
+	assert.True(t, ag.Called(), "agent should run for fix cr step")
 	assert.Equal(t, state.RunCompleted, rs.Status)
 }
 
@@ -1060,10 +1105,10 @@ func TestRun_LocalCR_HappyPath(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
-			"",                                                                           // step 4: initial agent run
+			"", // step 4: initial agent run
 			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // round 1: review (issues found)
-			"---CRSUMMARY---\nFixed the bug.\n---CRSUMMARY---",                            // round 1: fix
-			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // round 2: review (clean)
+			"---CRSUMMARY---\nFixed the bug.\n---CRSUMMARY---",                             // round 1: fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                    // round 2: review (clean)
 		},
 	}
 	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
@@ -1085,7 +1130,7 @@ func TestRun_LocalCR_NoIssuesFound(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
-			"",                                   // step 4: initial agent run
+			"", // step 4: initial agent run
 			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---", // step 7: review (clean)
 		},
 	}
@@ -1107,10 +1152,10 @@ func TestRun_LocalCR_MultiRound(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
-			"",                                                                           // step 4: initial agent run
+			"", // step 4: initial agent run
 			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // round 1: review (issues)
-			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                            // round 1: fix
-			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // round 2: review (clean)
+			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                             // round 1: fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                    // round 2: review (clean)
 		},
 	}
 	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
@@ -1129,11 +1174,11 @@ func TestRun_LocalCR_MaxRoundsReached(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
-			"",                                                                             // step 4: initial agent run
+			"", // step 4: initial agent run
 			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---",   // round 1: review
-			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                              // round 1: fix
+			"---CRSUMMARY---\nFixed round 1.\n---CRSUMMARY---",                               // round 1: fix
 			"---CRREVIEW---\n### Bug2\n**Severity**: High\n**Fix**: fix it2\n---CRREVIEW---", // round 2: review (still issues)
-			"---CRSUMMARY---\nFixed round 2.\n---CRSUMMARY---",                              // round 2: fix
+			"---CRSUMMARY---\nFixed round 2.\n---CRSUMMARY---",                               // round 2: fix
 		},
 	}
 	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}
@@ -1176,10 +1221,10 @@ func TestRun_LocalCR_NewCommitStrategy(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
-			"",                                                                           // step 4: initial agent run
+			"", // step 4: initial agent run
 			"---CRREVIEW---\n### Bug\n**Severity**: High\n**Fix**: fix it\n---CRREVIEW---", // review
-			"---CRSUMMARY---\nFixed.\n---CRSUMMARY---",                                    // fix
-			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                   // review clean
+			"---CRSUMMARY---\nFixed.\n---CRSUMMARY---",                                     // fix
+			"---CRREVIEW---\nNO_ISSUES\n---CRREVIEW---",                                    // review clean
 		},
 	}
 	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/1", Number: 1}}

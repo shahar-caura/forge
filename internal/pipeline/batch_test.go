@@ -300,7 +300,7 @@ func TestRunSingleIssue_CreatesPlanFile(t *testing.T) {
 	err = runSingleIssue(context.Background(), cfg, providers, 42, "Add Auth", "Implement auth system.", batchLogger())
 
 	require.NoError(t, err)
-	assert.True(t, ag.called)
+	assert.True(t, ag.Called())
 }
 
 // --- Multi-agent batch assignment tests ---
@@ -315,8 +315,8 @@ func TestFallbackAgent_DelegatesToPool(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "result from claude", output)
-	assert.True(t, a1.called)
-	assert.False(t, a2.called)
+	assert.True(t, a1.Called())
+	assert.False(t, a2.Called())
 }
 
 func TestFallbackAgent_FallsBackOnRetryableError(t *testing.T) {
@@ -377,8 +377,8 @@ func TestRunBatch_MultiAgentSpread(t *testing.T) {
 
 	require.NoError(t, err)
 	// Both agents should have been called (round-robin across 3 issues).
-	assert.True(t, a1.called, "first agent should be called")
-	assert.True(t, a2.called, "second agent should be called")
+	assert.True(t, a1.Called(), "first agent should be called")
+	assert.True(t, a2.Called(), "second agent should be called")
 }
 
 func TestRunBatch_SingleAgentPool_NoChange(t *testing.T) {
@@ -409,7 +409,7 @@ func TestRunBatch_SingleAgentPool_NoChange(t *testing.T) {
 	err = RunBatch(context.Background(), cfg, providers, "", false, batchLogger())
 
 	require.NoError(t, err)
-	assert.True(t, ag.called)
+	assert.True(t, ag.Called())
 }
 
 func TestRunBatch_NilPool_BackwardsCompatible(t *testing.T) {
@@ -439,5 +439,5 @@ func TestRunBatch_NilPool_BackwardsCompatible(t *testing.T) {
 	err = RunBatch(context.Background(), cfg, providers, "", false, batchLogger())
 
 	require.NoError(t, err)
-	assert.True(t, ag.called)
+	assert.True(t, ag.Called())
 }

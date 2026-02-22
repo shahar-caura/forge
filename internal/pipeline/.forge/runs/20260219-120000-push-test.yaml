@@ -2,8 +2,8 @@ id: 20260219-120000-push-test
 plan_path: ""
 mode: push
 status: completed
-created_at: 2026-02-21T13:31:05.680075+02:00
-updated_at: 2026-02-21T13:31:05.690942+02:00
+created_at: 2026-02-22T17:28:58.859189+02:00
+updated_at: 2026-02-22T17:28:58.863942+02:00
 branch: forge/my-feature
 worktree_path: /tmp/repo
 pr_url: url

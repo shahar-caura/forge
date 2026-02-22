@@ -20,7 +20,7 @@ func SPAHandler(fsys fs.FS) http.Handler {
 		// Check if the file exists in the embedded FS.
 		f, err := fsys.Open(path)
 		if err == nil {
-			f.Close()
+			_ = f.Close()
 			fileServer.ServeHTTP(w, r)
 			return
 		}

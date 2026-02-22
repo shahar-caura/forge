@@ -101,14 +101,19 @@ func New(id, planPath string) *RunState {
 // Load reads a RunState from .forge/runs/<id>.yaml.
 func Load(id string) (*RunState, error) {
 	path := filepath.Join(runsDir, id+".yaml")
+	return LoadFile(path)
+}
+
+// LoadFile reads a RunState from an arbitrary file path.
+func LoadFile(path string) (*RunState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("loading run state %q: %w", id, err)
+		return nil, fmt.Errorf("loading run state %q: %w", path, err)
 	}
 
 	var rs RunState
 	if err := yaml.Unmarshal(data, &rs); err != nil {
-		return nil, fmt.Errorf("parsing run state %q: %w", id, err)
+		return nil, fmt.Errorf("parsing run state %q: %w", path, err)
 	}
 	return &rs, nil
 }

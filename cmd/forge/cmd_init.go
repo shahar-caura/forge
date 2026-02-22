@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/shahar-caura/forge/internal/config"
+	"github.com/shahar-caura/forge/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -134,6 +135,10 @@ func cmdInit() error {
 	}
 
 	fmt.Printf("\nWrote %s\n", configPath)
+
+	if cwd, err := os.Getwd(); err == nil {
+		registry.Touch(cwd)
+	}
 
 	// Generate .forge.env files for secrets management.
 	if err := generateEnvFiles(data); err != nil {
