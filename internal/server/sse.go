@@ -40,7 +40,7 @@ func (h *SSEHub) Start(ctx context.Context) {
 		h.logger.Error("sse: failed to create watcher", "err", err)
 		return
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	// Ensure the runs directory exists before watching.
 	if err := os.MkdirAll(h.runsDir, 0o755); err != nil {
@@ -136,7 +136,7 @@ func (h *SSEHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case data := <-ch:
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
 	}

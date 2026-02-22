@@ -3,16 +3,29 @@
 
   interface Props {
     steps: StepState[];
+    onSelectStep?: (step: number) => void;
+    selectedStep?: number | null;
   }
 
-  let { steps }: Props = $props();
+  let { steps, onSelectStep, selectedStep = null }: Props = $props();
+
+  // Steps that produce agent logs (0-indexed).
+  const agentSteps = new Set([4, 7, 8]); // "run agent", "poll cr", "fix cr"
+
+  function isClickable(index: number, status: string): boolean {
+    return agentSteps.has(index) && status !== "pending";
+  }
 </script>
 
 <div class="step-progress">
   <h3>Steps</h3>
   <ol>
     {#each steps as step, i (i)}
-      <li class="step step-{step.status}">
+      <li
+        class="step step-{step.status}"
+        class:clickable={isClickable(i, step.status)}
+        class:selected={selectedStep === i}
+      >
         <span class="icon">
           {#if step.status === "completed"}
             <span class="check">✓</span>
@@ -24,7 +37,13 @@
             <span class="circle"></span>
           {/if}
         </span>
-        <span class="name">{step.name}</span>
+        {#if isClickable(i, step.status)}
+          <button class="name-btn" onclick={() => onSelectStep?.(i)}>
+            {step.name}
+          </button>
+        {:else}
+          <span class="name">{step.name}</span>
+        {/if}
         {#if step.error}
           <span class="error-msg">{step.error}</span>
         {/if}
@@ -119,6 +138,36 @@
 
   .step-failed .name {
     color: var(--color-error);
+  }
+
+  .clickable {
+    cursor: pointer;
+  }
+
+  .clickable:hover {
+    background: var(--bg-hover);
+    border-radius: 4px;
+  }
+
+  .selected {
+    background: var(--bg-active);
+    border-radius: 4px;
+  }
+
+  .name-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+
+  .name-btn:hover {
+    text-decoration-style: solid;
   }
 
   .error-msg {

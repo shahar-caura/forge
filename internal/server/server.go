@@ -19,6 +19,7 @@ type Server struct {
 	startTime time.Time
 	sseHub    *SSEHub
 	logger    *slog.Logger
+	registry  bool // aggregate runs from all registered repos
 }
 
 // New creates a Server with the given options.
@@ -32,6 +33,14 @@ func New(port int, runsDir, version string, logger *slog.Logger) *Server {
 	}
 }
 
+// SetMultiRepo enables aggregation of runs from all registered repos.
+func (s *Server) SetMultiRepo(enabled bool) { s.registry = enabled }
+
+// RegisterLogStream adds the log streaming endpoint to the given mux.
+func (s *Server) RegisterLogStream(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/runs/{id}/logs", s.handleLogStream)
+}
+
 // Run starts the HTTP server and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
@@ -41,6 +50,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Version:   s.version,
 		StartTime: s.startTime,
 		Logger:    s.logger,
+		MultiRepo: s.registry,
 	}
 	strictHandler := NewStrictHandler(h, nil)
 	HandlerFromMuxWithBaseURL(strictHandler, mux, "/api")
@@ -48,6 +58,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// SSE endpoint (outside codegen — streaming is incompatible with strict mode).
 	s.sseHub = NewSSEHub(s.runsDir, s.logger)
 	mux.Handle("GET /api/events", s.sseHub)
+
+	// Log streaming SSE endpoint.
+	s.RegisterLogStream(mux)
 
 	// SPA catch-all: serves embedded static files, falls back to index.html.
 	mux.Handle("/", SPAHandler(web.DistFS))

@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"time"
 
+	"github.com/shahar-caura/forge/internal/registry"
 	"github.com/shahar-caura/forge/internal/state"
 )
 
@@ -13,6 +15,7 @@ type Handlers struct {
 	Version   string
 	StartTime time.Time
 	Logger    *slog.Logger
+	MultiRepo bool // when true, aggregate runs from all registered repos
 }
 
 func (h *Handlers) GetHealth(_ context.Context, _ GetHealthRequestObject) (GetHealthResponseObject, error) {
@@ -24,7 +27,7 @@ func (h *Handlers) GetHealth(_ context.Context, _ GetHealthRequestObject) (GetHe
 }
 
 func (h *Handlers) ListRuns(_ context.Context, request ListRunsRequestObject) (ListRunsResponseObject, error) {
-	runs, err := state.List()
+	runs, err := h.listAllRuns()
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +77,7 @@ func (h *Handlers) ListRuns(_ context.Context, request ListRunsRequestObject) (L
 }
 
 func (h *Handlers) GetRun(_ context.Context, request GetRunRequestObject) (GetRunResponseObject, error) {
-	rs, err := state.Load(request.Id)
+	rs, err := h.findRun(request.Id)
 	if err != nil {
 		return GetRun404JSONResponse{
 			Code:    404,
@@ -83,6 +86,57 @@ func (h *Handlers) GetRun(_ context.Context, request GetRunRequestObject) (GetRu
 	}
 
 	return GetRun200JSONResponse(stateToRun(rs)), nil
+}
+
+// findRun looks up a run by ID, searching registered repos when in multi-repo mode.
+func (h *Handlers) findRun(id string) (*state.RunState, error) {
+	// Try local first (fast path).
+	rs, err := state.Load(id)
+	if err == nil {
+		return rs, nil
+	}
+	if !h.MultiRepo {
+		return nil, err
+	}
+	// Search registered repos.
+	repoRuns, regErr := registry.ListRuns()
+	if regErr != nil {
+		return nil, err
+	}
+	for _, rr := range repoRuns {
+		for _, r := range rr.Runs {
+			if r.ID == id {
+				return r, nil
+			}
+		}
+	}
+	return nil, err
+}
+
+// listAllRuns returns runs from the local directory or aggregated from all registered repos.
+func (h *Handlers) listAllRuns() ([]*state.RunState, error) {
+	if !h.MultiRepo {
+		return state.List()
+	}
+
+	repoRuns, err := registry.ListRuns()
+	if err != nil {
+		return nil, err
+	}
+
+	// Flatten all runs from all repos, fall back to local if registry is empty.
+	if len(repoRuns) == 0 {
+		return state.List()
+	}
+
+	var all []*state.RunState
+	for _, rr := range repoRuns {
+		all = append(all, rr.Runs...)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.After(all[j].CreatedAt)
+	})
+	return all, nil
 }
 
 // stateToRun converts a state.RunState to the API Run type.

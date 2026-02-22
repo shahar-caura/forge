@@ -4,6 +4,7 @@
   import { relativeTime } from "../lib/utils/time.js";
   import StepProgress from "./StepProgress.svelte";
   import CRFeedback from "./CRFeedback.svelte";
+  import LogViewer from "./LogViewer.svelte";
 
   interface Props {
     id: string;
@@ -11,11 +12,16 @@
 
   let { id }: Props = $props();
   let run = $derived(findRun(id));
+  let selectedStep = $state<number | null>(null);
 
   function planName(r: { plan_title?: string; plan_path: string }): string {
     if (r.plan_title) return r.plan_title;
     const parts = r.plan_path.split("/");
     return parts[parts.length - 1].replace(/\.md$/, "");
+  }
+
+  function handleSelectStep(step: number) {
+    selectedStep = selectedStep === step ? null : step;
   }
 </script>
 
@@ -60,7 +66,11 @@
       {/if}
     </div>
 
-    <StepProgress steps={run.steps} />
+    <StepProgress steps={run.steps} onSelectStep={handleSelectStep} {selectedStep} />
+
+    {#if selectedStep !== null}
+      <LogViewer runId={run.id} step={selectedStep} live={run.status === "active"} />
+    {/if}
 
     <CRFeedback crFeedback={run.cr_feedback} crFixSummary={run.cr_fix_summary} />
   {/if}

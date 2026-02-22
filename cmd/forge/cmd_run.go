@@ -12,6 +12,7 @@ import (
 
 	"github.com/shahar-caura/forge/internal/config"
 	"github.com/shahar-caura/forge/internal/pipeline"
+	"github.com/shahar-caura/forge/internal/registry"
 	"github.com/shahar-caura/forge/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +77,10 @@ func cmdRunBatch(cmd *cobra.Command, logger *slog.Logger, label string, dryRun b
 	}
 	applyOverrides(cmd, cfg)
 
+	if cwd, err := os.Getwd(); err == nil {
+		registry.Touch(cwd)
+	}
+
 	providers, err := wireProviders(cfg, logger)
 	if err != nil {
 		return err
@@ -100,6 +105,10 @@ func cmdRun(cmd *cobra.Command, logger *slog.Logger, planPath string, issueNumbe
 		return fmt.Errorf("loading config: %w", err)
 	}
 	applyOverrides(cmd, cfg)
+
+	if cwd, err := os.Getwd(); err == nil {
+		registry.Touch(cwd)
+	}
 
 	// Wire providers early — needed for --issue fetch before run ID generation.
 	providers, err := wireProviders(cfg, logger)

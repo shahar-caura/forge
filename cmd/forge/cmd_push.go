@@ -15,6 +15,7 @@ import (
 	"github.com/shahar-caura/forge/internal/provider/notifier"
 	"github.com/shahar-caura/forge/internal/provider/tracker"
 	"github.com/shahar-caura/forge/internal/provider/vcs"
+	"github.com/shahar-caura/forge/internal/registry"
 	"github.com/shahar-caura/forge/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,7 @@ func cmdPush(logger *slog.Logger, title, message string) error {
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
+	registry.Touch(cwd)
 	if reason := detectDirtyGitState(cwd); reason != "" {
 		return fmt.Errorf("unfinished %s; resolve it before pushing", reason)
 	}

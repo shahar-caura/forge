@@ -22,7 +22,7 @@ import (
 type Providers struct {
 	VCS         provider.VCS
 	Agent       provider.Agent
-	ReviewAgent provider.Agent    // nil means use Agent for CR review
+	ReviewAgent provider.Agent // nil means use Agent for CR review
 	Worktree    provider.Worktree
 	Tracker     provider.Tracker  // nil if unconfigured
 	Notifier    provider.Notifier // nil if unconfigured
