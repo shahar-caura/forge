@@ -58,6 +58,7 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	rs.WorktreePath = "/tmp/wt"
 	rs.PRUrl = "https://github.com/owner/repo/pull/42"
 	rs.PRNumber = 42
+	rs.CRRetryCount = 3
 	rs.Steps[0].Status = StepCompleted
 	rs.Steps[1].Status = StepFailed
 	rs.Steps[1].Error = "branch conflict"
@@ -74,6 +75,7 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	assert.Equal(t, rs.WorktreePath, loaded.WorktreePath)
 	assert.Equal(t, rs.PRUrl, loaded.PRUrl)
 	assert.Equal(t, rs.PRNumber, loaded.PRNumber)
+	assert.Equal(t, 3, loaded.CRRetryCount)
 	require.Len(t, loaded.Steps, 11)
 	assert.Equal(t, StepCompleted, loaded.Steps[0].Status)
 	assert.Equal(t, StepFailed, loaded.Steps[1].Status)

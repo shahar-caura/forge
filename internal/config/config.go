@@ -55,9 +55,10 @@ type HooksConfig struct {
 // CRConfig controls the code review feedback loop.
 type CRConfig struct {
 	Enabled        bool     `yaml:"enabled"`
-	Mode           string   `yaml:"mode"`       // "poll" (default) or "local"
-	MaxRounds      int      `yaml:"max_rounds"` // review-fix iterations (default 2)
-	Agent          string   `yaml:"agent"`      // agent override for CR review (defaults to agent.provider)
+	Mode           string   `yaml:"mode"`        // "poll" (default) or "local"
+	MaxRounds      int      `yaml:"max_rounds"`  // review-fix iterations (deprecated, use max_retries)
+	MaxRetries     int      `yaml:"max_retries"` // review-fix iterations (default 3)
+	Agent          string   `yaml:"agent"`       // agent override for CR review (defaults to agent.provider)
 	PollTimeout    Duration `yaml:"poll_timeout"`
 	PollInterval   Duration `yaml:"poll_interval"`
 	CommentPattern string   `yaml:"comment_pattern"`
@@ -144,8 +145,12 @@ func Load(path string) (*Config, error) {
 		if cfg.CR.Mode == "" {
 			cfg.CR.Mode = "poll"
 		}
-		if cfg.CR.MaxRounds == 0 {
-			cfg.CR.MaxRounds = 2
+		if cfg.CR.MaxRetries == 0 {
+			if cfg.CR.MaxRounds != 0 {
+				cfg.CR.MaxRetries = cfg.CR.MaxRounds
+			} else {
+				cfg.CR.MaxRetries = 3
+			}
 		}
 		if cfg.CR.PollTimeout.Duration == 0 {
 			cfg.CR.PollTimeout.Duration = defaultPollTimeout
@@ -232,8 +237,11 @@ func validate(cfg *Config) error {
 		default:
 			errs = append(errs, fmt.Errorf("cr.mode must be \"poll\" or \"local\", got %q", cfg.CR.Mode))
 		}
-		if cfg.CR.MaxRounds <= 0 {
-			errs = append(errs, errors.New("cr.max_rounds must be > 0"))
+		if cfg.CR.MaxRounds < 0 {
+			errs = append(errs, errors.New("cr.max_rounds must be >= 0"))
+		}
+		if cfg.CR.MaxRetries <= 0 {
+			errs = append(errs, errors.New("cr.max_retries must be > 0"))
 		}
 		if cfg.CR.Mode == "poll" && cfg.CR.CommentPattern == "" {
 			errs = append(errs, errors.New("cr.comment_pattern is required when cr.mode is \"poll\""))

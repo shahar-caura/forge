@@ -410,7 +410,7 @@ cr:
 	assert.Equal(t, "poll", cfg.CR.Mode)
 }
 
-func TestLoad_CRMaxRounds_DefaultsTo2(t *testing.T) {
+func TestLoad_CRMaxRounds_DefaultNow0(t *testing.T) {
 	yaml := `
 vcs:
   provider: github
@@ -427,7 +427,8 @@ cr:
 	path := writeConfig(t, yaml)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, 2, cfg.CR.MaxRounds)
+	assert.Equal(t, 0, cfg.CR.MaxRounds)
+	assert.Equal(t, 3, cfg.CR.MaxRetries)
 }
 
 func TestLoad_CRMode_InvalidValue(t *testing.T) {
@@ -470,6 +471,68 @@ cr:
 	_, err := Load(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cr.max_rounds")
+}
+
+func TestLoad_CRMaxRounds_BackwardCompatibility(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: local
+  max_rounds: 5
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, cfg.CR.MaxRetries)
+}
+
+func TestLoad_CRMaxRetries_DefaultsTo3(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  comment_pattern: "review done"
+`
+	path := writeConfig(t, yaml)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 3, cfg.CR.MaxRetries)
+}
+
+func TestLoad_CRMaxRetries_Invalid(t *testing.T) {
+	yaml := `
+vcs:
+  provider: github
+  repo: owner/repo
+  base_branch: main
+agent:
+  provider: claude
+worktree:
+  create_cmd: "echo hello"
+cr:
+  enabled: true
+  mode: local
+  max_retries: -1
+`
+	path := writeConfig(t, yaml)
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cr.max_retries")
 }
 
 func TestLoad_CRLocalMode_CommentPatternNotRequired(t *testing.T) {

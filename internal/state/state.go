@@ -75,6 +75,7 @@ type RunState struct {
 	IssueURL     string `yaml:"issue_url,omitempty"`
 	CRFeedback   string `yaml:"cr_feedback,omitempty"`
 	CRFixSummary string `yaml:"cr_fix_summary,omitempty"`
+	CRRetryCount int    `yaml:"cr_retry_count,omitempty"`
 	PlanTitle    string `yaml:"plan_title,omitempty"`
 	SourceIssue  int    `yaml:"source_issue,omitempty"`
 
