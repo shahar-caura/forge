@@ -10,6 +10,9 @@ pre-commit:
     lint:
       glob: "*.go"
       run: golangci-lint run --new-from-rev=HEAD {staged_files}
+    test:
+      glob: "*.go"
+      run: go test -race ./...
 
 pre-push:
   commands:

@@ -518,8 +518,10 @@ func agentResultText(output string) string {
 	return parsed.Result
 }
 
-var crReviewMarker = "---CRREVIEW---"
-var crSummaryMarker = "---CRSUMMARY---"
+var (
+	crReviewMarker  = "---CRREVIEW---"
+	crSummaryMarker = "---CRSUMMARY---"
+)
 
 // extractCRSummary extracts the text between ---CRSUMMARY--- markers from agent output.
 // Returns empty string if markers are missing or content is empty.
@@ -724,8 +726,10 @@ func openAgentLog(runID string, step int, a provider.Agent, logger *slog.Logger)
 	}
 }
 
-var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]+`)
-var validBranch = regexp.MustCompile(`^[A-Z]+-[0-9]+(-[a-z0-9]+)+$`)
+var (
+	nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]+`)
+	validBranch     = regexp.MustCompile(`^[A-Z]+-[0-9]+(-[a-z0-9]+)+$`)
+)
 
 // SlugFromTitle converts a title string to a kebab-case slug.
 func SlugFromTitle(title string) string {

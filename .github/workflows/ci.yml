@@ -21,6 +21,7 @@ jobs:
 
       - name: Format check
         run: |
+          go install mvdan.cc/gofumpt@latest
           go install golang.org/x/tools/cmd/goimports@latest
           make fmt
           git diff --exit-code || (echo "::error::goimports produced changes; run 'make fmt' locally" && exit 1)

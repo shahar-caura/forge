@@ -199,7 +199,8 @@ func (g *GitHub) GetIssue(ctx context.Context, number int) (*provider.GitHubIssu
 func (g *GitHub) ListIssues(ctx context.Context, state string, label string) ([]provider.GitHubIssue, error) {
 	g.Logger.Info("listing issues", "state", state, "label", label)
 
-	args := []string{"issue", "list",
+	args := []string{
+		"issue", "list",
 		"--repo", g.Repo,
 		"--state", state,
 		"--json", "number,title,body,url",

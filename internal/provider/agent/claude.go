@@ -49,7 +49,8 @@ func (c *Claude) Run(ctx context.Context, dir, prompt string) (string, error) {
 
 	c.Logger.Info("running agent", "dir", dir, "timeout", c.Timeout)
 
-	args := []string{"-p", prompt,
+	args := []string{
+		"-p", prompt,
 		"--allowedTools", "Edit,Read,Write,Bash",
 		"--output-format", "json",
 	}
