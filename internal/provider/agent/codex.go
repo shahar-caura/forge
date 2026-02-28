@@ -46,7 +46,8 @@ func (c *Codex) Run(ctx context.Context, dir, prompt string) (string, error) {
 
 	c.Logger.Info("running codex agent", "dir", dir, "timeout", c.Timeout)
 
-	args := []string{"exec",
+	args := []string{
+		"exec",
 		"--full-auto",
 		"--json",
 		"--cd", dir,

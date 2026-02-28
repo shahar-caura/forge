@@ -3,10 +3,9 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"testing"
-
-	"log/slog"
 
 	"github.com/shahar-caura/forge/internal/provider"
 	"github.com/stretchr/testify/assert"

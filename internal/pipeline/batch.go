@@ -19,8 +19,8 @@ import (
 // sorts them by dependency, and executes each in order. Sequential within each
 // level for V1.
 func RunBatch(ctx context.Context, cfg *config.Config, providers Providers,
-	label string, dryRun bool, logger *slog.Logger) error {
-
+	label string, dryRun bool, logger *slog.Logger,
+) error {
 	issues, err := providers.VCS.ListIssues(ctx, "open", label)
 	if err != nil {
 		return fmt.Errorf("listing issues: %w", err)
@@ -154,8 +154,8 @@ func reportFailure(ctx context.Context, providers Providers, num int, err error,
 
 // runSingleIssue executes a single GitHub issue through the forge pipeline.
 func runSingleIssue(ctx context.Context, cfg *config.Config, providers Providers,
-	number int, title, body string, logger *slog.Logger) error {
-
+	number int, title, body string, logger *slog.Logger,
+) error {
 	slug := SlugFromTitle(title)
 	runID := time.Now().Format("20060102-150405") + "-" + slug
 
@@ -184,7 +184,8 @@ func runSingleIssue(ctx context.Context, cfg *config.Config, providers Providers
 // Handles transitive deps. Fetch errors are logged and treated as external deps (skipped).
 func expandDeps(ctx context.Context, vcs interface {
 	GetIssue(ctx context.Context, number int) (*provider.GitHubIssue, error)
-}, issueSet map[int]bool, titleMap map[int]string, bodyMap map[int]string, logger *slog.Logger) error {
+}, issueSet map[int]bool, titleMap map[int]string, bodyMap map[int]string, logger *slog.Logger,
+) error {
 	external := make(map[int]bool) // deps we tried to fetch and failed — treat as external
 	for {
 		var missing []int

@@ -8,8 +8,10 @@ import (
 	"strings"
 )
 
-var depPattern = regexp.MustCompile(`(?i)(?:depends on|blocked by)\s+(#\d+(?:,\s*#\d+)*)`)
-var issueNumPattern = regexp.MustCompile(`#(\d+)`)
+var (
+	depPattern      = regexp.MustCompile(`(?i)(?:depends on|blocked by)\s+(#\d+(?:,\s*#\d+)*)`)
+	issueNumPattern = regexp.MustCompile(`#(\d+)`)
+)
 
 // ParseDeps extracts issue dependencies from a GitHub issue body.
 // It looks for "Depends on #N" and "Blocked by #N" patterns (case-insensitive),
