@@ -1097,7 +1097,7 @@ func testConfigWithLocalCR() *config.Config {
 	cfg.CR = config.CRConfig{
 		Enabled:     true,
 		Mode:        "local",
-		MaxRounds:   2,
+		MaxRetries:  2,
 		FixStrategy: "amend",
 	}
 	return cfg
@@ -1121,6 +1121,7 @@ func TestRun_LocalCR_HappyPath(t *testing.T) {
 	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
 	require.NoError(t, err)
+	assert.Equal(t, 2, rs.CRRetryCount, "should be 2 (last round review clean)")
 	assert.Equal(t, 4, ag.callCount, "agent: initial + review1 + fix1 + review2")
 	assert.True(t, vc.amendCalled, "should amend and force push")
 	assert.True(t, vc.postCommentCalled, "should post reply comment")
@@ -1172,7 +1173,7 @@ func TestRun_LocalCR_MultiRound(t *testing.T) {
 	assert.True(t, vc.amendCalled)
 }
 
-func TestRun_LocalCR_MaxRoundsReached(t *testing.T) {
+func TestRun_LocalCR_MaxRetriesReached(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{
 		outputs: []string{
@@ -1190,9 +1191,10 @@ func TestRun_LocalCR_MaxRoundsReached(t *testing.T) {
 
 	err := Run(context.Background(), testConfigWithLocalCR(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
 
-	require.NoError(t, err, "max rounds exhausted is not an error")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exhausted max retries (2)")
+	assert.Equal(t, 2, rs.CRRetryCount)
 	assert.Equal(t, 5, ag.callCount, "agent: initial + (review+fix) x 2")
-	assert.Equal(t, state.RunCompleted, rs.Status)
 }
 
 func TestRun_LocalCR_ReviewAgentFails(t *testing.T) {

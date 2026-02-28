@@ -615,8 +615,10 @@ func localReview(ctx context.Context, cfg *config.Config, providers Providers, r
 	branch := rs.Branch
 	ra := reviewAgent(providers)
 
-	for round := 1; round <= cfg.CR.MaxRounds; round++ {
-		logger.Info("local CR review round", "round", round, "max", cfg.CR.MaxRounds)
+	for round := 1; round <= cfg.CR.MaxRetries; round++ {
+		logger.Info("local CR review round", "round", round, "max", cfg.CR.MaxRetries)
+		rs.CRRetryCount = round
+		_ = rs.Save()
 
 		// 1. Run review agent (read-only).
 		logFile, cleanup := openAgentLog(rs.ID, 7, ra, logger)
@@ -679,8 +681,7 @@ func localReview(ctx context.Context, cfg *config.Config, providers Providers, r
 		_ = providers.VCS.PostPRComment(ctx, rs.PRNumber, comment)
 	}
 
-	logger.Warn("local CR loop exhausted max rounds with issues still present", "max_rounds", cfg.CR.MaxRounds)
-	return nil
+	return fmt.Errorf("local CR loop exhausted max retries (%d) with issues still present", cfg.CR.MaxRetries)
 }
 
 // saveAgentLog writes agent output to .forge/runs/<runID>-agent-step<N>.log for debugging.
