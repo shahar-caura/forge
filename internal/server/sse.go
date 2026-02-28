@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/shahar-caura/forge/internal/state"
@@ -61,7 +62,7 @@ func (h *SSEHub) Start(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
 				continue
 			}
 			if !strings.HasSuffix(event.Name, ".yaml") || strings.HasSuffix(event.Name, ".tmp") {
@@ -96,7 +97,7 @@ func (h *SSEHub) broadcast(data []byte) {
 		select {
 		case ch <- data:
 		default:
-			// slow client, drop event
+			// Slow client; drop this event.
 		}
 	}
 }
@@ -126,15 +127,21 @@ func (h *SSEHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch := make(chan []byte, 16)
+	ch := make(chan []byte, 32)
 	h.addClient(ch)
 	defer h.removeClient(ch)
+
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
 
 	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-keepalive.C:
+			_, _ = fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
 		case data := <-ch:
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
