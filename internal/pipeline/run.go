@@ -213,8 +213,13 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 
 	// Step 5: Commit and push.
 	if err := runStep(rs, 5, logger, func() error {
+		// Rebase onto latest base branch so the worktree picks up any
+		// fixes that landed on master since it was created.
+		if err := providers.VCS.FetchAndRebase(ctx, worktreePath, cfg.VCS.BaseBranch); err != nil {
+			logger.Warn("rebase onto base branch failed, continuing", "error", err)
+		}
 		if cfg.Hooks.PreCommit != "" {
-			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+			if err := runHookWithRetry(ctx, cfg.Hooks.PreCommit, worktreePath, providers.Agent, cfg.Hooks.MaxHookRetries, logger); err != nil {
 				return fmt.Errorf("pre-commit hook: %w", err)
 			}
 		}
@@ -231,6 +236,9 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 		prBody := planBody
 		if rs.SourceIssue > 0 {
 			prBody = fmt.Sprintf("Closes #%d\n\n%s", rs.SourceIssue, planBody)
+		}
+		if rs.IssueURL != "" {
+			prBody = fmt.Sprintf("[%s](%s)\n\n%s", rs.IssueKey, rs.IssueURL, prBody)
 		}
 		pr, err := providers.VCS.CreatePR(ctx, branch, cfg.VCS.BaseBranch, title, prBody)
 		if err != nil {
@@ -336,7 +344,7 @@ func Run(ctx context.Context, cfg *config.Config, providers Providers, planPath 
 			return nil
 		}
 		if cfg.Hooks.PreCommit != "" {
-			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+			if err := runHookWithRetry(ctx, cfg.Hooks.PreCommit, worktreePath, providers.Agent, cfg.Hooks.MaxHookRetries, logger); err != nil {
 				return fmt.Errorf("pre-commit hook: %w", err)
 			}
 		}
@@ -644,7 +652,7 @@ func localReview(ctx context.Context, cfg *config.Config, providers Providers, r
 
 		// 4. Pre-commit hook.
 		if cfg.Hooks.PreCommit != "" {
-			if err := runHook(ctx, cfg.Hooks.PreCommit, worktreePath, logger); err != nil {
+			if err := runHookWithRetry(ctx, cfg.Hooks.PreCommit, worktreePath, providers.Agent, cfg.Hooks.MaxHookRetries, logger); err != nil {
 				return fmt.Errorf("pre-commit hook (round %d): %w", round, err)
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ func (g *GitHub) CommitAndPush(ctx context.Context, dir, branch, message string)
 		g.Logger.Info("running", "step", name)
 		cmd := g.commandContext(ctx, args[0], args[1:]...)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "LEFTHOOK=0")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(out)))
@@ -270,6 +272,7 @@ func (g *GitHub) amendAndForcePush(ctx context.Context, dir, branch, msgFlag, ms
 		g.Logger.Info("running", "step", name)
 		cmd := g.commandContext(ctx, args[0], args[1:]...)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "LEFTHOOK=0")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(out)))

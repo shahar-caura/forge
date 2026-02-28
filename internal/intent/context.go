@@ -15,18 +15,18 @@ type DynamicContext struct {
 }
 
 // GatherContext collects plan files and recent run IDs for prompt injection.
-func GatherContext() DynamicContext {
+func GatherContext(rootDir string) DynamicContext {
 	var dc DynamicContext
 
-	plans, _ := filepath.Glob("plans/*.md")
+	plans, _ := filepath.Glob(filepath.Join(rootDir, "plans", "*.md"))
 	for _, p := range plans {
 		dc.PlanFiles = append(dc.PlanFiles, filepath.Base(p))
 	}
 
 	runs, err := state.List()
 	if err == nil {
-		cap := min(10, len(runs))
-		for _, r := range runs[:cap] {
+		n := min(10, len(runs))
+		for _, r := range runs[:n] {
 			dc.RunIDs = append(dc.RunIDs, r.ID)
 		}
 	}

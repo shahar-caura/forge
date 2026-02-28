@@ -48,7 +48,8 @@ type ServerConfig struct {
 
 // HooksConfig holds lifecycle hook commands.
 type HooksConfig struct {
-	PreCommit string `yaml:"pre_commit"` // shell command to run before commit
+	PreCommit      string `yaml:"pre_commit"`       // shell command to run before commit
+	MaxHookRetries int    `yaml:"max_hook_retries"` // agent retry attempts on hook failure (default 2)
 }
 
 // CRConfig controls the code review feedback loop.
@@ -155,6 +156,10 @@ func Load(path string) (*Config, error) {
 		if cfg.CR.FixStrategy == "" {
 			cfg.CR.FixStrategy = "amend"
 		}
+	}
+
+	if cfg.Hooks.MaxHookRetries == 0 {
+		cfg.Hooks.MaxHookRetries = 2
 	}
 
 	if cfg.Editor.Command == "" {

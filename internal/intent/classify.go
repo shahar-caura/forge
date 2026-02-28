@@ -1,6 +1,7 @@
 package intent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 // CommandContext is the function used to create exec.Cmd. Override in tests.
 var CommandContext = exec.CommandContext
 
+// MinConfidence is the minimum confidence score required to accept a classification.
+const MinConfidence = 0.5
+
 // Classify interprets a natural language query as a forge command.
 func Classify(ctx context.Context, query string) (*Result, error) {
 	if _, err := exec.LookPath("claude"); err != nil {
@@ -21,19 +25,22 @@ func Classify(ctx context.Context, query string) (*Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	dc := GatherContext()
+	dc := GatherContext(".")
 	prompt := BuildPrompt(query, dc)
 
 	cmd := CommandContext(ctx, "claude", "-p", prompt, "--output-format", "json", "--max-tokens", "256")
-	out, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("%w: timed out after 30s", ErrClassificationFailed)
 		}
-		return nil, fmt.Errorf("%w: %s", ErrClassificationFailed, string(out))
+		return nil, fmt.Errorf("%w: %s", ErrClassificationFailed, stderr.String())
 	}
 
-	return parseResponse(string(out))
+	return parseResponse(stdout.String())
 }
 
 // parseResponse extracts a Result from the claude CLI JSON output.
@@ -53,6 +60,10 @@ func parseResponse(raw string) (*Result, error) {
 
 	if len(r.Argv) == 0 {
 		return nil, fmt.Errorf("%w: empty argv", ErrClassificationFailed)
+	}
+
+	if r.Confidence < MinConfidence {
+		return nil, fmt.Errorf("%w: confidence %.2f below threshold %.2f: %s", ErrClassificationFailed, r.Confidence, MinConfidence, r.Reasoning)
 	}
 
 	return &r, nil

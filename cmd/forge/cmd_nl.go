@@ -11,13 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// nlClassifying guards against classify → execute → classify recursion.
+var nlClassifying bool
+
 func runNaturalLanguage(cmd *cobra.Command, logger *slog.Logger, args []string) error {
 	if len(args) == 0 {
 		return cmd.Help()
 	}
 
 	// Recursion guard: prevent classify → execute → classify loops.
-	if os.Getenv("FORGE_NL_CLASSIFIED") == "1" {
+	if nlClassifying {
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 
@@ -47,8 +50,8 @@ func runNaturalLanguage(cmd *cobra.Command, logger *slog.Logger, args []string) 
 
 	fmt.Fprintf(os.Stderr, "=> forge %s\n", strings.Join(result.Argv, " "))
 
-	os.Setenv("FORGE_NL_CLASSIFIED", "1")
-	defer os.Unsetenv("FORGE_NL_CLASSIFIED")
+	nlClassifying = true
+	defer func() { nlClassifying = false }()
 
 	cmd.Root().SetArgs(result.Argv)
 	return cmd.Root().Execute()

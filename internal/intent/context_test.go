@@ -23,15 +23,10 @@ func TestGatherContext_WithPlanFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Change to temp dir so glob finds plans/.
-	orig, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(orig)
-
 	// Point state to empty dir so List() returns nothing.
 	state.SetRunsDir(filepath.Join(dir, "no-runs"))
 
-	dc := GatherContext()
+	dc := GatherContext(dir)
 	if len(dc.PlanFiles) != 2 {
 		t.Fatalf("expected 2 plan files, got %d", len(dc.PlanFiles))
 	}
@@ -42,13 +37,10 @@ func TestGatherContext_WithPlanFiles(t *testing.T) {
 
 func TestGatherContext_NoPlanFiles(t *testing.T) {
 	dir := t.TempDir()
-	orig, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(orig)
 
 	state.SetRunsDir(filepath.Join(dir, "no-runs"))
 
-	dc := GatherContext()
+	dc := GatherContext(dir)
 	if len(dc.PlanFiles) != 0 {
 		t.Fatalf("expected 0 plan files, got %d", len(dc.PlanFiles))
 	}

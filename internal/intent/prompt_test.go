@@ -20,7 +20,7 @@ func TestBuildPrompt_ContainsSubcommands(t *testing.T) {
 
 	subcommands := []string{"forge run", "forge push", "forge resume", "forge runs",
 		"forge status", "forge logs", "forge steps", "forge edit",
-		"forge cleanup", "forge init", "forge completion", "forge serve"}
+		"forge cleanup", "forge init", "forge completion", "forge serve", "forge version"}
 
 	for _, sub := range subcommands {
 		if !strings.Contains(prompt, sub) {
