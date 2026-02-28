@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -60,9 +61,7 @@ func TestClassify_Success(t *testing.T) {
 
 func TestClassify_NoClaude(t *testing.T) {
 	// Override PATH so claude is not found.
-	orig := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	defer os.Setenv("PATH", orig)
+	t.Setenv("PATH", "")
 
 	_, err := Classify(context.Background(), "anything")
 	if !errors.Is(err, ErrNoClaude) {
@@ -128,6 +127,22 @@ func TestParseResponse_DirectJSON(t *testing.T) {
 	}
 	if len(r.Argv) != 2 || r.Argv[0] != "status" {
 		t.Fatalf("unexpected argv: %v", r.Argv)
+	}
+}
+
+func TestClassify_LowConfidence(t *testing.T) {
+	envelope := `{"result":"{\"argv\":[\"run\",\"plans/auth.md\"],\"confidence\":0.2,\"reasoning\":\"not sure\"}"}`
+
+	orig := CommandContext
+	CommandContext = fakeCommandContext(envelope, false)
+	defer func() { CommandContext = orig }()
+
+	_, err := Classify(context.Background(), "maybe run something")
+	if !errors.Is(err, ErrClassificationFailed) {
+		t.Fatalf("expected ErrClassificationFailed, got: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "confidence") {
+		t.Fatalf("expected confidence-related error, got: %v", err)
 	}
 }
 

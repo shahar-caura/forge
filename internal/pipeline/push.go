@@ -136,6 +136,9 @@ func Push(ctx context.Context, cfg *config.Config, providers Providers, opts Pus
 
 	// Step 6: Create PR.
 	if err := runStep(rs, 6, logger, func() error {
+		if rs.IssueURL != "" {
+			body = fmt.Sprintf("[%s](%s)\n\n%s", rs.IssueKey, rs.IssueURL, body)
+		}
 		pr, err := providers.VCS.CreatePR(ctx, opts.Branch, cfg.VCS.BaseBranch, displayTitle, body)
 		if err != nil {
 			return err

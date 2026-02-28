@@ -13,6 +13,7 @@ tracker:
   base_url: ${JIRA_URL}     # e.g. https://yourco.atlassian.net
   email: ${JIRA_EMAIL}
   token: ${JIRA_TOKEN}
+  # board_id: "123"         # Optional: Jira board ID
 
 notifier:
   provider: slack
@@ -21,14 +22,20 @@ notifier:
 agent:
   provider: claude          # claude, ralph, codex, gemini
   timeout: 45m              # Max time for agent execution
+  # providers:              # Optional: multi-agent pool for batch runs (round-robin + fallback).
+  #   - claude              # When set, overrides provider for batch; provider is still used
+  #   - gemini              # for single runs (forge run) and as default if providers is empty.
+  # allowed_tools: ""       # Optional: comma-separated tool allowlist (auto-set for ralph)
 
 worktree:
   create_cmd: "./scripts/git-worktree-add.sh {{.Branch}} {{.Path}} {{.BaseBranch}}"
   remove_cmd: "git worktree remove --force {{.Path}}"
   cleanup: true             # Remove worktree after PR is opened
+  cleanup_on_merge: false   # Automatically remove worktree when PR is merged
 
 hooks:
   pre_commit: "make fmt && make vet"  # Run before pushing commits
+  max_hook_retries: 2                 # Agent retry attempts on hook failure (0 = fail fast)
 
 state:
   retention: 168h             # How long to keep completed run states (7 days)
@@ -42,6 +49,9 @@ cr:
   # poll_interval: 15s        # How often to poll for comments (poll mode)
   # comment_pattern: ""       # Regex to match CR bot comment (poll mode only)
   # fix_strategy: amend       # "amend" or "new-commit"
+
+server:
+  # port: 8080               # Dashboard HTTP server port
 
 editor:
   enabled: false              # Open editor automatically on forge edit

@@ -7,6 +7,11 @@ import (
 
 // BuildPrompt constructs the full classification prompt for the LLM.
 func BuildPrompt(query string, dc DynamicContext) string {
+	const maxQueryLen = 500
+	if len(query) > maxQueryLen {
+		query = query[:maxQueryLen]
+	}
+
 	var sb strings.Builder
 
 	sb.WriteString(`You are a CLI intent classifier for the "forge" tool.
@@ -26,6 +31,7 @@ Given a natural language query, determine which forge subcommand the user intend
 - forge init                  — Initialize forge.yaml
 - forge completion [shell]    — Generate shell completion
 - forge serve                 — Start local web server (--addr, --open)
+- forge version               — Show forge version
 
 `)
 

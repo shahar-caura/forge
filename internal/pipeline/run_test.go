@@ -161,6 +161,8 @@ func (m *mockVCS) AmendAndForcePushMsg(_ context.Context, _, _, _ string) error 
 }
 
 func (m *mockVCS) HasChanges(_ context.Context, _ string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return !m.noChanges, nil
 }
 
