@@ -13,12 +13,15 @@ import (
 // CommandContext is the function used to create exec.Cmd. Override in tests.
 var CommandContext = exec.CommandContext
 
+// LookPath is the function used to find executables. Override in tests.
+var LookPath = exec.LookPath
+
 // MinConfidence is the minimum confidence score required to accept a classification.
 const MinConfidence = 0.5
 
 // Classify interprets a natural language query as a forge command.
 func Classify(ctx context.Context, query string) (*Result, error) {
-	if _, err := exec.LookPath("claude"); err != nil {
+	if _, err := LookPath("claude"); err != nil {
 		return nil, ErrNoClaude
 	}
 
