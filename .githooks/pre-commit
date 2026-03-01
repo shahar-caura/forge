@@ -9,15 +9,17 @@ if [ -z "$STAGED_GO" ]; then
     exit 0
 fi
 
-echo "pre-commit: goimports..."
-if command -v goimports &>/dev/null; then
+echo "pre-commit: formatting..."
+if command -v gofumpt &>/dev/null && command -v goimports &>/dev/null; then
+    echo "$STAGED_GO" | xargs gofumpt -w
     echo "$STAGED_GO" | xargs goimports -w
     echo "$STAGED_GO" | xargs git diff --exit-code -- >/dev/null 2>&1 || {
-        echo "pre-commit: goimports produced changes — re-staged."
+        echo "pre-commit: formatter produced changes — re-staged."
         echo "$STAGED_GO" | xargs git add
     }
 else
-    echo "pre-commit: goimports not found, skipping format check"
+    echo "pre-commit: gofumpt/goimports not found, skipping format check"
+    echo "  install: go install mvdan.cc/gofumpt@latest"
     echo "  install: go install golang.org/x/tools/cmd/goimports@latest"
 fi
 

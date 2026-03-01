@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Forge pre-push hook: runs full test suite so CI failures are caught locally.
+# Install: git config core.hooksPath .githooks
+set -euo pipefail
+
+echo "pre-push: running tests..."
+make test
+
+echo "pre-push: OK"

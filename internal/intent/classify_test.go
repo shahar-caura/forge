@@ -39,13 +39,17 @@ func fakeCommandContext(output string, exitErr bool) func(ctx context.Context, n
 	}
 }
 
+func fakeLookPath(string) (string, error) { return "/fake/claude", nil }
+
 func TestClassify_Success(t *testing.T) {
 	// Envelope wrapping actual JSON result.
 	envelope := `{"result":"{\"argv\":[\"run\",\"plans/auth.md\"],\"confidence\":0.95,\"reasoning\":\"user wants to run auth plan\"}"}`
 
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext(envelope, false)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	r, err := Classify(context.Background(), "run the auth plan")
 	if err != nil {
@@ -71,8 +75,10 @@ func TestClassify_NoClaude(t *testing.T) {
 
 func TestClassify_ExitError(t *testing.T) {
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext("something went wrong", true)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	_, err := Classify(context.Background(), "do something")
 	if !errors.Is(err, ErrClassificationFailed) {
@@ -82,8 +88,10 @@ func TestClassify_ExitError(t *testing.T) {
 
 func TestClassify_MalformedJSON(t *testing.T) {
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext(`{"result":"not json at all"}`, false)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	_, err := Classify(context.Background(), "do something")
 	if !errors.Is(err, ErrClassificationFailed) {
@@ -93,8 +101,10 @@ func TestClassify_MalformedJSON(t *testing.T) {
 
 func TestClassify_EmptyArgv(t *testing.T) {
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext(`{"result":"{\"argv\":[],\"confidence\":0.1,\"reasoning\":\"unclear\"}"}`, false)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	_, err := Classify(context.Background(), "do something")
 	if !errors.Is(err, ErrClassificationFailed) {
@@ -107,8 +117,10 @@ func TestClassify_CodeFencedJSON(t *testing.T) {
 	fenced := "{\"result\":\"```json\\n{\\\"argv\\\":[\\\"runs\\\"],\\\"confidence\\\":0.9,\\\"reasoning\\\":\\\"list runs\\\"}\\n```\"}"
 
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext(fenced, false)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	r, err := Classify(context.Background(), "show my runs")
 	if err != nil {
@@ -134,8 +146,10 @@ func TestClassify_LowConfidence(t *testing.T) {
 	envelope := `{"result":"{\"argv\":[\"run\",\"plans/auth.md\"],\"confidence\":0.2,\"reasoning\":\"not sure\"}"}`
 
 	orig := CommandContext
+	origLP := LookPath
 	CommandContext = fakeCommandContext(envelope, false)
-	defer func() { CommandContext = orig }()
+	LookPath = fakeLookPath
+	defer func() { CommandContext = orig; LookPath = origLP }()
 
 	_, err := Classify(context.Background(), "maybe run something")
 	if !errors.Is(err, ErrClassificationFailed) {
