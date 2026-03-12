@@ -404,17 +404,20 @@ func runStep(rs *state.RunState, idx int, logger *slog.Logger, fn func() error) 
 
 	step.Status = state.StepRunning
 	step.Error = ""
+	step.StartedAt = time.Now()
 	_ = rs.Save()
 
 	if err := fn(); err != nil {
 		step.Status = state.StepFailed
 		step.Error = err.Error()
+		step.CompletedAt = time.Now()
 		rs.Status = state.RunFailed
 		_ = rs.Save()
 		return fmt.Errorf("step %d (%s): %w", idx+1, step.Name, err)
 	}
 
 	step.Status = state.StepCompleted
+	step.CompletedAt = time.Now()
 	_ = rs.Save()
 	return nil
 }

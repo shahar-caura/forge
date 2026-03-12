@@ -497,6 +497,45 @@ func TestRun_StateTrackingHappyPath(t *testing.T) {
 	}
 }
 
+func TestRun_StepTimestampsPopulated(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{}
+	vc := &mockVCS{pr: &provider.PR{URL: "https://github.com/owner/repo/pull/42", Number: 42}}
+
+	planPath := writePlan(t, "implement auth")
+	rs := newRunState(planPath)
+	before := time.Now()
+
+	err := Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	require.NoError(t, err)
+	after := time.Now()
+	for _, step := range rs.Steps {
+		assert.False(t, step.StartedAt.IsZero(), "step %q should have StartedAt set", step.Name)
+		assert.False(t, step.CompletedAt.IsZero(), "step %q should have CompletedAt set", step.Name)
+		assert.True(t, !step.StartedAt.Before(before), "step %q StartedAt should be after test start", step.Name)
+		assert.True(t, !step.CompletedAt.After(after), "step %q CompletedAt should be before test end", step.Name)
+		assert.True(t, !step.CompletedAt.Before(step.StartedAt), "step %q CompletedAt should be >= StartedAt", step.Name)
+	}
+}
+
+func TestRun_FailedStepHasTimestamps(t *testing.T) {
+	wt := &mockWorktree{createPath: "/tmp/wt"}
+	ag := &mockAgent{err: errors.New("agent failed")}
+	vc := &mockVCS{}
+
+	planPath := writePlan(t, "will fail")
+	rs := newRunState(planPath)
+
+	_ = Run(context.Background(), testConfig(), defaultProviders(wt, ag, vc), planPath, rs, testLogger())
+
+	// Step 4 (run agent) should have failed with timestamps set.
+	step := rs.Steps[4]
+	assert.Equal(t, state.StepFailed, step.Status)
+	assert.False(t, step.StartedAt.IsZero(), "failed step should have StartedAt")
+	assert.False(t, step.CompletedAt.IsZero(), "failed step should have CompletedAt")
+}
+
 func TestRun_ResumeSkipsCompletedSteps(t *testing.T) {
 	wt := &mockWorktree{createPath: "/tmp/wt"}
 	ag := &mockAgent{}
