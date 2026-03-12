@@ -82,6 +82,54 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	assert.Equal(t, "branch conflict", loaded.Steps[1].Error)
 }
 
+func TestSaveAndLoad_StepTimestamps(t *testing.T) {
+	cleanup := setupTestDir(t)
+	defer cleanup()
+
+	rs := New("20260312-timestamps", "plans/ts.md")
+	now := time.Now().Truncate(time.Second)
+	rs.Steps[0].Status = StepCompleted
+	rs.Steps[0].StartedAt = now.Add(-10 * time.Second)
+	rs.Steps[0].CompletedAt = now
+
+	require.NoError(t, rs.Save())
+
+	loaded, err := Load(rs.ID)
+	require.NoError(t, err)
+
+	assert.WithinDuration(t, rs.Steps[0].StartedAt, loaded.Steps[0].StartedAt, time.Second)
+	assert.WithinDuration(t, rs.Steps[0].CompletedAt, loaded.Steps[0].CompletedAt, time.Second)
+	// Pending steps should have zero timestamps.
+	assert.True(t, loaded.Steps[1].StartedAt.IsZero())
+	assert.True(t, loaded.Steps[1].CompletedAt.IsZero())
+}
+
+func TestBackwardsCompat_OldStateWithoutTimestamps(t *testing.T) {
+	cleanup := setupTestDir(t)
+	defer cleanup()
+
+	// Simulate an old state file without timestamp fields.
+	require.NoError(t, os.MkdirAll(runsDir, 0o755))
+	oldYAML := `id: old-run
+plan_path: plans/old.md
+status: completed
+created_at: 2026-01-01T00:00:00Z
+updated_at: 2026-01-01T00:00:00Z
+steps:
+  - name: read plan
+    status: completed
+  - name: create issue
+    status: pending
+`
+	require.NoError(t, os.WriteFile(filepath.Join(runsDir, "old-run.yaml"), []byte(oldYAML), 0o644))
+
+	loaded, err := Load("old-run")
+	require.NoError(t, err)
+	assert.Equal(t, StepCompleted, loaded.Steps[0].Status)
+	assert.True(t, loaded.Steps[0].StartedAt.IsZero(), "old files without timestamps should load with zero time")
+	assert.True(t, loaded.Steps[0].CompletedAt.IsZero())
+}
+
 func TestLoad_Nonexistent(t *testing.T) {
 	cleanup := setupTestDir(t)
 	defer cleanup()

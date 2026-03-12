@@ -52,9 +52,11 @@ var StepNames = []string{
 
 // StepState tracks status and error for a single pipeline step.
 type StepState struct {
-	Name   string     `yaml:"name"`
-	Status StepStatus `yaml:"status"`
-	Error  string     `yaml:"error,omitempty"`
+	Name        string     `yaml:"name"`
+	Status      StepStatus `yaml:"status"`
+	Error       string     `yaml:"error,omitempty"`
+	StartedAt   time.Time  `yaml:"started_at,omitempty"`
+	CompletedAt time.Time  `yaml:"completed_at,omitempty"`
 }
 
 // RunState is the persistent state for a single pipeline run.
